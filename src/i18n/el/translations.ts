@@ -16,7 +16,7 @@ export default {
         copied: "Copied",
         continue: "Συνέχεια",
         error_unimplemented: "Unimplemented",
-        why: "Why?",
+        why: "Γιατί;",
         private_tags: "Private tags",
         view_transaction: "Προβολή συναλλαγής",
         pending: "Pending",
