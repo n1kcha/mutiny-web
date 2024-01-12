@@ -10,10 +10,13 @@ export type MutinyWalletSettingStrings = {
     esplora?: string;
     rgs?: string;
     lsp?: string;
+    lsps_connection_string?: string;
+    lsps_token?: string;
     auth?: string;
     subscriptions?: string;
     storage?: string;
     scorer?: string;
+    selfhosted?: string;
 };
 
 const SETTINGS_KEYS = [
@@ -43,6 +46,16 @@ const SETTINGS_KEYS = [
         default: import.meta.env.VITE_LSP
     },
     {
+        name: "lsps_connection_string",
+        storageKey: "USER_SETTINGS_lsps_connection_string",
+        default: import.meta.env.VITE_LSPS_CONNECTION_STRING
+    },
+    {
+        name: "lsps_token",
+        storageKey: "USER_SETTINGS_lsps_token",
+        default: import.meta.env.VITE_LSPS_TOKEN
+    },
+    {
         name: "auth",
         storageKey: "USER_SETTINGS_auth",
         default: import.meta.env.VITE_AUTH
@@ -61,6 +74,11 @@ const SETTINGS_KEYS = [
         name: "scorer",
         storageKey: "USER_SETTINGS_scorer",
         default: import.meta.env.VITE_SCORER
+    },
+    {
+        name: "selfhosted",
+        storageKey: "USER_SETTINGS_selfhosted",
+        default: import.meta.env.VITE_SELFHOSTED
     }
 ];
 
@@ -99,9 +117,32 @@ export async function getSettings() {
         settings[n] = item as string;
     });
 
-    if (!settings.network || !settings.proxy || !settings.esplora) {
+    // VITE_PROXY and VITE_STORAGE might be set as relative URLs when self-hosting, so we need to make them absolute
+    const selfhosted = settings.selfhosted === "true";
+
+    // Expect urls like /_services/proxy and /_services/storage
+    if (selfhosted) {
+        let base = window.location.origin;
+        console.log("Self-hosted mode enabled, using base URL", base);
+        const storage = settings.storage;
+        if (storage && storage.startsWith("/")) {
+            settings.storage = base + storage;
+        }
+
+        const proxy = settings.proxy;
+        if (proxy && proxy.startsWith("/")) {
+            if (base.startsWith("http://")) {
+                base = base.replace("http://", "ws://");
+            } else if (base.startsWith("https://")) {
+                base = base.replace("https://", "wss://");
+            }
+            settings.proxy = base + proxy;
+        }
+    }
+
+    if (!settings.network || !settings.proxy) {
         throw new Error(
-            "Missing a default setting for network, proxy, or esplora. Check your .env file to make sure it looks like .env.sample"
+            "Missing a default setting for network or proxy. Check your .env file to make sure it looks like .env.sample"
         );
     }
 
@@ -158,15 +199,41 @@ export async function doubleInitDefense() {
 
 export async function initializeWasm() {
     // Actually intialize the WASM, this should be the first thing that requires the WASM blob to be downloaded
-    await initMutinyWallet();
+
+    // If WASM is already initialized, don't init twice
+    try {
+        const _sats_the_standard = MutinyWallet.convert_btc_to_sats(1);
+        console.debug("MutinyWallet WASM already initialized, skipping init");
+        return;
+    } catch (e) {
+        console.debug("MutinyWallet WASM about to be initialized");
+        await initMutinyWallet();
+    }
 }
 
 export async function setupMutinyWallet(
     settings: MutinyWalletSettingStrings,
     password?: string,
-    safeMode?: boolean
+    safeMode?: boolean,
+    shouldZapHodl?: boolean
 ): Promise<MutinyWallet> {
     console.log("Starting setup...");
+
+    // https://developer.mozilla.org/en-US/docs/Web/API/Storage_API
+    // Ask the browser to not clear storage
+    if (navigator.storage && navigator.storage.persist) {
+        navigator.storage.persist().then((persistent) => {
+            if (persistent) {
+                console.log(
+                    "Storage will not be cleared except by explicit user action"
+                );
+            } else {
+                console.log(
+                    "Storage may be cleared by the UA under storage pressure."
+                );
+            }
+        });
+    }
 
     const {
         network,
@@ -174,6 +241,8 @@ export async function setupMutinyWallet(
         esplora,
         rgs,
         lsp,
+        lsps_connection_string,
+        lsps_token,
         auth,
         subscriptions,
         storage,
@@ -186,11 +255,17 @@ export async function setupMutinyWallet(
     console.log("Using esplora address", esplora);
     console.log("Using rgs address", rgs);
     console.log("Using lsp address", lsp);
+    console.log("Using lsp connection string", lsps_connection_string);
+    console.log("Using lsp token", lsps_token);
     console.log("Using auth address", auth);
     console.log("Using subscriptions address", subscriptions);
     console.log("Using storage address", storage);
     console.log("Using scorer address", scorer);
     console.log(safeMode ? "Safe mode enabled" : "Safe mode disabled");
+    console.log(shouldZapHodl ? "Hodl zaps enabled" : "Hodl zaps disabled");
+
+    // Only use lsps if there's no lsp set
+    const shouldUseLSPS = !lsp && lsps_connection_string && lsps_token;
 
     const mutinyWallet = await new MutinyWallet(
         // Password
@@ -202,6 +277,8 @@ export async function setupMutinyWallet(
         esplora,
         rgs,
         lsp,
+        shouldUseLSPS ? lsps_connection_string : undefined,
+        shouldUseLSPS ? lsps_token : undefined,
         auth,
         subscriptions,
         storage,
@@ -211,7 +288,9 @@ export async function setupMutinyWallet(
         // Do not skip device lock
         undefined,
         // Safe mode
-        safeMode || undefined
+        safeMode || undefined,
+        // Skip hodl invoices? (defaults to true, so if shouldZapHodl is true that's when we pass false)
+        shouldZapHodl ? false : undefined
     );
 
     sessionStorage.setItem("MUTINY_WALLET_INITIALIZED", Date.now().toString());

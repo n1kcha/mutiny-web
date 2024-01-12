@@ -4,7 +4,8 @@ import {
     Checkbox as KCheckbox,
     Separator
 } from "@kobalte/core";
-import { LoadingSpinner } from "@mutinywallet/ui";
+import { TagItem, TagKind } from "@mutinywallet/mutiny-wasm";
+import { A } from "@solidjs/router";
 import {
     createResource,
     createSignal,
@@ -15,15 +16,19 @@ import {
     Suspense,
     Switch
 } from "solid-js";
-import { A } from "solid-start";
 
 import check from "~/assets/icons/check.svg";
 import close from "~/assets/icons/close.svg";
 import down from "~/assets/icons/down.svg";
-import { DecryptDialog, LoadingIndicator } from "~/components";
+import {
+    Button,
+    DecryptDialog,
+    LoadingIndicator,
+    LoadingSpinner
+} from "~/components";
 import { useI18n } from "~/i18n/context";
 import { useMegaStore } from "~/state/megaStore";
-import { generateGradient, MutinyTagItem } from "~/utils";
+import { generateGradient } from "~/utils";
 
 export const SmallHeader: ParentComponent<{ class?: string }> = (props) => {
     return (
@@ -107,7 +112,7 @@ export const Collapser: ParentComponent<{
                     class="collapsible__trigger-icon"
                 />
             </Collapsible.Trigger>
-            <Collapsible.Content class="bg-m-grey-900 p-4 shadow-inner">
+            <Collapsible.Content class="bg-m-grey-950 p-4 shadow-inner">
                 {props.children}
             </Collapsible.Content>
         </Collapsible.Root>
@@ -116,7 +121,7 @@ export const Collapser: ParentComponent<{
 
 export const SafeArea: ParentComponent = (props) => {
     return (
-        <div class="h-[100dvh] safe-left safe-right">
+        <div class="safe-left safe-right h-device">
             {/* <div class="flex-1 disable-scrollbars overflow-y-scroll md:pl-[8rem] md:pr-[6rem]"> */}
             {props.children}
             {/* </div> */}
@@ -124,17 +129,23 @@ export const SafeArea: ParentComponent = (props) => {
     );
 };
 
-export const DefaultMain: ParentComponent = (props) => {
+export const DefaultMain = (props: {
+    children?: JSX.Element;
+    zeroBottomPadding?: boolean;
+}) => {
     return (
-        <main class="mx-auto flex h-full w-full max-w-[600px] flex-col gap-4 p-4">
+        <main
+            class="mx-auto flex w-full max-w-[600px] flex-1 flex-col gap-4 p-4"
+            classList={{ "pb-0": props.zeroBottomPadding }}
+        >
             {props.children}
             {/* CSS is hard sometimes */}
-            <div class="py-4" />
+            {/* <div class="py-1" /> */}
         </main>
     );
 };
 
-export const FullscreenLoader = () => {
+const FullscreenLoader = () => {
     const i18n = useI18n();
     const [waitedTooLong, setWaitedTooLong] = createSignal(false);
 
@@ -143,12 +154,12 @@ export const FullscreenLoader = () => {
     }, 10000);
 
     return (
-        <div class="flex h-[100dvh] w-full flex-col items-center justify-center gap-4">
+        <div class="flex w-full flex-col items-center justify-center gap-4 h-device">
             <LoadingSpinner wide />
             <Show when={waitedTooLong()}>
                 <p class="max-w-[20rem] text-neutral-400">
                     {i18n.t("error.load_time.stuck")}{" "}
-                    <A class="text-white" href="/emergencykit">
+                    <A class="text-white" href="/settings/emergencykit">
                         {i18n.t("error.emergency_link")}
                     </A>
                 </p>
@@ -179,6 +190,17 @@ export const MutinyWalletGuard: ParentComponent = (props) => {
 };
 
 export const Hr = () => <Separator.Root class="my-4 border-m-grey-750" />;
+
+export const KeyValue: ParentComponent<{ key: string }> = (props) => {
+    return (
+        <li class="flex items-center justify-between gap-6">
+            <span class="min-w-max text-sm font-semibold uppercase text-m-grey-400">
+                {props.key}
+            </span>
+            <span class="truncate font-light">{props.children}</span>
+        </li>
+    );
+};
 
 export const LargeHeader: ParentComponent<{
     action?: JSX.Element;
@@ -223,26 +245,6 @@ export const VStack: ParentComponent<{
     );
 };
 
-export const HStack: ParentComponent<{ biggap?: boolean }> = (props) => {
-    return (
-        <div class={`flex gap-${props.biggap ? "8" : "4"}`}>
-            {props.children}
-        </div>
-    );
-};
-
-export const SmallAmount: ParentComponent<{
-    amount: number | bigint;
-    sign?: string;
-}> = (props) => {
-    return (
-        <h2 class="text-lg font-light">
-            {props.sign ? `${props.sign} ` : ""}
-            {props.amount.toLocaleString()} <span class="text-sm">SATS</span>
-        </h2>
-    );
-};
-
 export const NiceP: ParentComponent = (props) => {
     return <p class="text-xl font-light text-neutral-200">{props.children}</p>;
 };
@@ -253,7 +255,7 @@ export const TinyText: ParentComponent = (props) => {
 
 export const TinyButton: ParentComponent<{
     onClick: () => void;
-    tag?: MutinyTagItem;
+    tag?: TagItem;
 }> = (props) => {
     // TODO: don't need to run this if it's not a contact
     const [gradient] = createResource(async () => {
@@ -261,7 +263,7 @@ export const TinyButton: ParentComponent<{
     });
 
     const bg = () =>
-        props.tag?.name && props.tag?.kind === "Contact"
+        props.tag?.name && props.tag?.kind === TagKind.Contact
             ? gradient()
             : "rgb(255 255 255 / 0.1)";
 
@@ -306,7 +308,7 @@ export function Checkbox(props: {
                     <img src={check} class="h-8 w-8" alt="check" />
                 </KCheckbox.Indicator>
             </KCheckbox.Control>
-            <KCheckbox.Label class="flex flex-1 flex-col gap-1 text-xl font-light">
+            <KCheckbox.Label class="flex flex-1 flex-col gap-1 font-semibold">
                 {props.label}
                 <Show when={props.caption}>
                     <TinyText>{props.caption}</TinyText>
@@ -324,11 +326,11 @@ export function ModalCloseButton() {
     );
 }
 
-export const SIMPLE_OVERLAY = "fixed inset-0 z-50 bg-black/20 backdrop-blur-md";
-export const SIMPLE_DIALOG_POSITIONER =
+const SIMPLE_OVERLAY = "fixed inset-0 z-50 bg-black/50 backdrop-blur-lg";
+const SIMPLE_DIALOG_POSITIONER =
     "fixed inset-0 z-50 flex items-center justify-center";
-export const SIMPLE_DIALOG_CONTENT =
-    "max-w-[500px] w-[90vw] max-h-[100dvh] overflow-y-scroll disable-scrollbars mx-4 p-4 bg-neutral-800/80 backdrop-blur-md shadow-xl rounded-xl border border-white/10";
+const SIMPLE_DIALOG_CONTENT =
+    "max-w-[500px] w-[90vw] max-h-device overflow-y-scroll disable-scrollbars mx-4 p-4 bg-neutral-800/90 rounded-xl border border-white/10";
 
 export const SimpleDialog: ParentComponent<{
     title: string;
@@ -339,11 +341,12 @@ export const SimpleDialog: ParentComponent<{
         <Dialog.Root
             open={props.open}
             onOpenChange={props.setOpen && props.setOpen}
+            modal={true}
         >
             <Dialog.Portal>
                 <Dialog.Overlay class={SIMPLE_OVERLAY} />
                 <div class={SIMPLE_DIALOG_POSITIONER}>
-                    <Dialog.Content class={SIMPLE_DIALOG_CONTENT}>
+                    <Dialog.Content class={SIMPLE_DIALOG_CONTENT} tabIndex={0}>
                         <div class="mb-2 flex items-center justify-between">
                             <Dialog.Title>
                                 <SmallHeader>{props.title}</SmallHeader>
@@ -356,6 +359,52 @@ export const SimpleDialog: ParentComponent<{
                         </div>
                         <Dialog.Description class="flex flex-col gap-4">
                             {props.children}
+                        </Dialog.Description>
+                    </Dialog.Content>
+                </div>
+            </Dialog.Portal>
+        </Dialog.Root>
+    );
+};
+
+export const ConfirmDialog: ParentComponent<{
+    open: boolean;
+    loading: boolean;
+    onCancel: () => void;
+    onConfirm: () => void;
+}> = (props) => {
+    const i18n = useI18n();
+    return (
+        <Dialog.Root open={props.open} onOpenChange={props.onCancel}>
+            <Dialog.Portal>
+                <Dialog.Overlay class={SIMPLE_OVERLAY} />
+                <div class={SIMPLE_DIALOG_POSITIONER}>
+                    <Dialog.Content class={SIMPLE_DIALOG_CONTENT}>
+                        <div class="mb-2 flex justify-between">
+                            <Dialog.Title>
+                                <SmallHeader>
+                                    {i18n.t(
+                                        "modals.confirm_dialog.are_you_sure"
+                                    )}
+                                </SmallHeader>
+                            </Dialog.Title>
+                        </div>
+                        <Dialog.Description class="flex flex-col gap-4">
+                            {props.children}
+                            <div class="flex w-full justify-end gap-4">
+                                <Button layout="small" onClick={props.onCancel}>
+                                    {i18n.t("modals.confirm_dialog.cancel")}
+                                </Button>
+                                <Button
+                                    layout="small"
+                                    intent="red"
+                                    onClick={props.onConfirm}
+                                    loading={props.loading}
+                                    disabled={props.loading}
+                                >
+                                    {i18n.t("modals.confirm_dialog.confirm")}
+                                </Button>
+                            </div>
                         </Dialog.Description>
                     </Dialog.Content>
                 </div>

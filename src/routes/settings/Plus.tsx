@@ -1,3 +1,4 @@
+import { A } from "@solidjs/router";
 import {
     createResource,
     createSignal,
@@ -6,7 +7,6 @@ import {
     Suspense,
     Switch
 } from "solid-js";
-import { A } from "solid-start";
 
 import party from "~/assets/party.gif";
 import {
@@ -14,6 +14,7 @@ import {
     Button,
     ConfirmDialog,
     DefaultMain,
+    ExternalLink,
     FancyCard,
     InfoBox,
     LargeHeader,
@@ -27,7 +28,7 @@ import {
 } from "~/components";
 import { useI18n } from "~/i18n/context";
 import { useMegaStore } from "~/state/megaStore";
-import { eify, subscriptionValid } from "~/utils";
+import { eify, vibrateSuccess } from "~/utils";
 
 function Perks(props: { alreadySubbed?: boolean }) {
     const i18n = useI18n();
@@ -36,13 +37,16 @@ function Perks(props: { alreadySubbed?: boolean }) {
             <Show when={props.alreadySubbed}>
                 <li>{i18n.t("settings.plus.satisfaction")}</li>
             </Show>
+            <li>{i18n.t("settings.plus.gifting")} </li>
             <li>
-                {i18n.t("redshift.title")}{" "}
-                <em>{i18n.t("common.coming_soon")}</em>
-            </li>
-            <li>
-                {i18n.t("settings.plus.gifting")}{" "}
-                <em>{i18n.t("common.coming_soon")}</em>
+                <Show
+                    when={props.alreadySubbed}
+                    fallback={i18n.t("settings.plus.ios_beta_access")}
+                >
+                    <ExternalLink href="https://testflight.apple.com/join/9g23f0Mc">
+                        {i18n.t("settings.plus.ios_beta_access")}
+                    </ExternalLink>
+                </Show>
             </li>
             <li>
                 {i18n.t("settings.plus.multi_device")}{" "}
@@ -59,7 +63,6 @@ function PlusCTA() {
 
     const [subbing, setSubbing] = createSignal(false);
     const [confirmOpen, setConfirmOpen] = createSignal(false);
-    const [restoring, setRestoring] = createSignal(false);
 
     const [error, setError] = createSignal<Error>();
 
@@ -90,8 +93,11 @@ function PlusCTA() {
                 throw new Error(i18n.t("settings.plus.error_failure"));
 
             await state.mutiny_wallet?.pay_subscription_invoice(
-                invoice?.bolt11
+                invoice?.bolt11,
+                true
             );
+
+            await vibrateSuccess();
 
             // "true" flag gives this a fallback to set a timestamp in case the subscription server is down
             await actions.checkForSubscription(true);
@@ -104,35 +110,13 @@ function PlusCTA() {
         }
     }
 
-    async function restore() {
-        try {
-            setError(undefined);
-            setRestoring(true);
-            await actions.checkForSubscription();
-            if (!state.subscription_timestamp) {
-                setError(
-                    new Error(i18n.t("settings.plus.error_no_subscription"))
-                );
-            }
-
-            if (!subscriptionValid(state.subscription_timestamp)) {
-                setError(
-                    new Error(
-                        i18n.t("settings.plus.error_expired_subscription")
-                    )
-                );
-            }
-        } catch (e) {
-            console.error(e);
-            setError(eify(e));
-        } finally {
-            setRestoring(false);
-        }
-    }
-
     const hasEnough = () => {
         if (!planDetails()) return false;
-        return (state.balance?.lightning || 0n) > planDetails().amount_sat;
+        return (
+            (state.balance?.lightning || 0n) +
+                (state.balance?.federation || 0n) >
+            planDetails().amount_sat
+        );
     };
 
     return (
@@ -170,14 +154,6 @@ function PlusCTA() {
                     >
                         {i18n.t("settings.plus.join")}
                     </Button>
-                    <Button
-                        intent="green"
-                        layout="flex"
-                        onClick={restore}
-                        loading={restoring()}
-                    >
-                        {i18n.t("settings.plus.restore")}
-                    </Button>
                 </div>
             </VStack>
             <ConfirmDialog
@@ -191,14 +167,14 @@ function PlusCTA() {
                     <strong class="text-white">
                         {i18n.t("settings.plus.title")}
                     </strong>
-                    ?{i18n.t("settings.plus.click_confirm")}
+                    ? {i18n.t("settings.plus.click_confirm")}
                 </p>
             </ConfirmDialog>
         </Show>
     );
 }
 
-export default function Plus() {
+export function Plus() {
     const i18n = useI18n();
     const [state, _actions] = useMegaStore();
 

@@ -1,16 +1,26 @@
 import { NwcProfile } from "@mutinywallet/mutiny-wasm";
-import { createResource, createSignal, For, Show } from "solid-js";
+import { A, useSearchParams } from "@solidjs/router";
+import {
+    createResource,
+    createSignal,
+    ErrorBoundary,
+    For,
+    Show
+} from "solid-js";
 import { QRCodeSVG } from "solid-qr-code";
 
+import scan from "~/assets/icons/scan.svg";
 import {
+    AmountSats,
+    AmountSmall,
     BackLink,
     Button,
     Collapser,
+    ConfirmDialog,
     DefaultMain,
     InfoBox,
     KeyValue,
     LargeHeader,
-    MiniStringShower,
     MutinyWalletGuard,
     NavBar,
     NiceP,
@@ -18,185 +28,263 @@ import {
     SettingsCard,
     ShareCard,
     SimpleDialog,
-    TextField,
+    SmallHeader,
+    TinyText,
     VStack
 } from "~/components";
+import { NWCEditor } from "~/components/NWCEditor";
 import { useI18n } from "~/i18n/context";
 import { useMegaStore } from "~/state/megaStore";
-import { eify } from "~/utils";
+import { createDeepSignal, openLinkProgrammatically } from "~/utils";
+
+function Spending(props: { spent: number; remaining: number }) {
+    const i18n = useI18n();
+    return (
+        <VStack smallgap>
+            <div class="flex justify-between">
+                <SmallHeader>
+                    {i18n.t("settings.connections.spent")}
+                </SmallHeader>
+                <SmallHeader>
+                    {i18n.t("settings.connections.remaining")}
+                </SmallHeader>
+            </div>
+            <div class="flex w-full gap-1">
+                <div
+                    class="min-w-fit rounded-l-xl bg-m-green p-2"
+                    style={{
+                        "flex-grow": props.spent || 1
+                    }}
+                >
+                    <AmountSmall amountSats={props.spent} />
+                </div>
+
+                <div
+                    class="min-w-fit rounded-r-xl bg-m-blue p-2"
+                    style={{
+                        "flex-grow": props.remaining || 1
+                    }}
+                >
+                    <AmountSmall amountSats={props.remaining} />
+                </div>
+            </div>
+        </VStack>
+    );
+}
+
+function NwcDetails(props: {
+    profile: NwcProfile;
+    refetch: () => void;
+    onEdit?: () => void;
+}) {
+    const i18n = useI18n();
+    const [state, _actions] = useMegaStore();
+
+    const [confirmOpen, setConfirmOpen] = createSignal(false);
+
+    function confirmDelete() {
+        setConfirmOpen(true);
+    }
+
+    async function deleteProfile() {
+        try {
+            await state.mutiny_wallet?.delete_nwc_profile(props.profile.index);
+            setConfirmOpen(false);
+            props.refetch();
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    async function openInNostrClient() {
+        const uri = props.profile.nwc_uri;
+        await openLinkProgrammatically(uri, {
+            title: i18n.t("settings.connections.nostr_client_not_found"),
+            description: i18n.t(
+                "settings.connections.client_not_found_description"
+            )
+        });
+    }
+
+    return (
+        <VStack>
+            <Show when={props.profile.index >= 1000 && props.profile.nwc_uri}>
+                <div class="w-full rounded-xl bg-white">
+                    <QRCodeSVG
+                        value={props.profile.nwc_uri!}
+                        class="h-full max-h-[320px] w-full p-8"
+                    />
+                </div>
+                <ShareCard text={props.profile.nwc_uri || ""} />
+            </Show>
+
+            <Show when={!props.profile.require_approval}>
+                <Show when={props.profile.nwc_uri}>
+                    <TinyText>
+                        {i18n.t("settings.connections.careful")}
+                    </TinyText>
+                </Show>
+                <Spending
+                    spent={Number(
+                        Number(props.profile.budget_amount || 0) -
+                            Number(props.profile.budget_remaining || 0)
+                    )}
+                    remaining={Number(props.profile.budget_remaining || 0)}
+                />
+                <KeyValue key={i18n.t("settings.connections.budget")}>
+                    <AmountSats amountSats={props.profile.budget_amount} />
+                </KeyValue>
+                {/* No interval for gifts */}
+                <Show when={props.profile.budget_period}>
+                    <KeyValue key={i18n.t("settings.connections.resets_every")}>
+                        {props.profile.budget_period}
+                    </KeyValue>
+                </Show>
+                <Show when={props.profile.index === 0}>
+                    <KeyValue
+                        key={i18n.t("settings.connections.resubscribe_date")}
+                    >
+                        {new Date(
+                            state.subscription_timestamp! * 1000
+                        ).toLocaleDateString()}
+                    </KeyValue>
+                </Show>
+            </Show>
+
+            <Button layout="small" intent="green" onClick={props.onEdit}>
+                {i18n.t("settings.connections.edit_budget")}
+            </Button>
+
+            <Show
+                when={
+                    props.profile.tag !== "Gift" &&
+                    props.profile.tag !== "Subscription" &&
+                    props.profile.nwc_uri
+                }
+            >
+                <Button
+                    layout="small"
+                    intent="blue"
+                    onClick={openInNostrClient}
+                >
+                    {i18n.t("settings.connections.open_in_nostr_client")}
+                </Button>
+            </Show>
+
+            <Button layout="small" onClick={confirmDelete}>
+                {i18n.t("settings.connections.delete_connection")}
+            </Button>
+            <ConfirmDialog
+                loading={false}
+                open={confirmOpen()}
+                onConfirm={deleteProfile}
+                onCancel={() => setConfirmOpen(false)}
+            >
+                {i18n.t("settings.connections.confirm_delete")}
+            </ConfirmDialog>
+        </VStack>
+    );
+}
 
 function Nwc() {
     const i18n = useI18n();
     const [state, _actions] = useMegaStore();
 
-    const [nwcProfiles, { refetch }] = createResource(async () => {
+    async function fetchNwcProfiles() {
         try {
-            const profiles: NwcProfile[] =
-                await state.mutiny_wallet?.get_nwc_profiles();
+            const profiles = await state.mutiny_wallet?.get_nwc_profiles();
+            if (!profiles) return [];
 
             return profiles;
         } catch (e) {
             console.error(e);
         }
+    }
+
+    const [nwcProfiles, { refetch }] = createResource(fetchNwcProfiles, {
+        storage: createDeepSignal
     });
 
-    const urlParams = new URLSearchParams(window.location.search);
-    const queryName = urlParams.get("name");
-    const [formName, setFormName] = createSignal(queryName || "");
-    const [dialogOpen, setDialogOpen] = createSignal(!!queryName);
-    const [createLoading, setCreateLoading] = createSignal(false);
-    const [error, setError] = createSignal("");
+    const [searchParams, setSearchParams] = useSearchParams();
     const [callbackDialogOpen, setCallbackDialogOpen] = createSignal(false);
-    const [callbackUri, setCallbackUri] = createSignal<string | null>(null);
+    const [callbackUri, setCallbackUri] = createSignal<string>();
 
-    async function createConnection() {
-        try {
-            setError("");
-            setCreateLoading(true);
+    // Profile creation / editing
+    const [dialogOpen, setDialogOpen] = createSignal(
+        !!searchParams.queryName || !!searchParams.nwa
+    );
 
-            if (formName() === "") {
-                setError(i18n.t("settings.connections.error_name"));
-                return;
-            }
-            const profile = await state.mutiny_wallet?.create_nwc_profile(
-                formName()
+    function handleToggleOpen(open: boolean) {
+        setDialogOpen(open);
+        // If they close the dialog clear the search params
+        setSearchParams({ nwa: undefined, name: undefined });
+    }
+
+    const [profileToOpen, setProfileToOpen] = createSignal<number>();
+
+    function editProfile(profile: NwcProfile) {
+        setProfileToOpen(profile.index);
+        setDialogOpen(true);
+    }
+
+    function createProfile() {
+        setProfileToOpen(undefined);
+        setDialogOpen(true);
+    }
+
+    const [newConnection, setNewConnection] = createSignal<number>();
+
+    async function handleSave(
+        indexToOpen?: number,
+        nwcUriForCallback?: string
+    ) {
+        setDialogOpen(false);
+        refetch();
+
+        if (indexToOpen) {
+            setNewConnection(indexToOpen);
+        }
+
+        const callbackUriScheme = searchParams.callbackUri;
+        if (callbackUriScheme && nwcUriForCallback) {
+            const fullURI = nwcUriForCallback.replace(
+                "nostr+walletconnect://",
+                `${callbackUriScheme}://`
             );
-
-            if (!profile) {
-                setError(i18n.t("settings.connections.error_connection"));
-                return;
-            } else {
-                refetch();
-            }
-
-            setFormName("");
-            setDialogOpen(false);
-
-            const callbackUriScheme = getCallbackQueryParam();
-            if (callbackUriScheme) {
-                const fullURI = profile.nwc_uri.replace(
-                    "nostr+walletconnect://",
-                    `${getCallbackQueryParam()}://`
-                );
-                setCallbackUri(fullURI);
-                setCallbackDialogOpen(true);
-            }
-        } catch (e) {
-            setError(eify(e).message);
-            console.error(e);
-        } finally {
-            setCreateLoading(false);
+            setCallbackUri(fullURI);
+            setCallbackDialogOpen(true);
         }
+
+        setSearchParams({ nwa: undefined, name: undefined });
     }
 
-    function openCallbackUri() {
-        if (callbackUri()) {
-            window.open(callbackUri() as string, "_blank");
-            setCallbackDialogOpen(false);
-        }
-    }
-
-    async function toggleEnabled(profile: NwcProfile) {
-        try {
-            await state.mutiny_wallet?.edit_nwc_profile({
-                ...profile,
-                enabled: !profile.enabled
-            });
-            refetch();
-        } catch (e) {
-            console.error(e);
-        }
-    }
-
-    // this is because the TextField component has a bunch of required props
-    function noop() {
-        // do nothing
-        return;
-    }
-
-    function openInNostrClient(uri: string) {
-        window.open(uri, "_blank");
-    }
-
-    function openInPrimal(uri: string) {
-        const connectString = uri.replace("nostr+walletconnect", "primal");
-        window.open(connectString, "_blank");
-    }
-
-    function getCallbackQueryParam() {
-        const urlParams = new URLSearchParams(window.location.search);
-        return urlParams.get("callbackUri");
+    async function openCallbackUri() {
+        await openLinkProgrammatically(callbackUri());
+        setSearchParams({ callbackUri: "" });
+        setCallbackDialogOpen(false);
     }
 
     return (
         <VStack biggap>
-            <Button intent="blue" onClick={() => setDialogOpen(true)}>
+            <Button intent="blue" onClick={createProfile}>
                 {i18n.t("settings.connections.add_connection")}
             </Button>
-            <Show when={nwcProfiles() && nwcProfiles()!.length > 0}>
+            <Show when={nwcProfiles.latest && nwcProfiles.latest?.length > 0}>
                 <SettingsCard
                     title={i18n.t("settings.connections.manage_connections")}
                 >
-                    <For each={nwcProfiles()}>
+                    <For each={nwcProfiles()?.filter((p) => p.tag !== "Gift")}>
                         {(profile) => (
                             <Collapser
                                 title={profile.name}
-                                activityLight={profile.enabled ? "on" : "off"}
+                                activityLight={"on"}
+                                defaultOpen={profile.index === newConnection()}
                             >
-                                <VStack>
-                                    <KeyValue
-                                        key={i18n.t(
-                                            "settings.connections.relay"
-                                        )}
-                                    >
-                                        <MiniStringShower
-                                            text={profile.relay}
-                                        />
-                                    </KeyValue>
-
-                                    <div class="w-full rounded-xl bg-white">
-                                        <QRCodeSVG
-                                            value={profile.nwc_uri}
-                                            class="h-full max-h-[320px] w-full p-8"
-                                        />
-                                    </div>
-                                    <ShareCard text={profile.nwc_uri || ""} />
-
-                                    <Button
-                                        layout="small"
-                                        onClick={() =>
-                                            openInNostrClient(profile.nwc_uri)
-                                        }
-                                    >
-                                        {i18n.t(
-                                            "settings.connections.open_in_nostr_client"
-                                        )}
-                                    </Button>
-
-                                    <Button
-                                        layout="small"
-                                        onClick={() =>
-                                            openInPrimal(profile.nwc_uri)
-                                        }
-                                    >
-                                        {i18n.t(
-                                            "settings.connections.open_in_primal"
-                                        )}
-                                    </Button>
-
-                                    <Button
-                                        layout="small"
-                                        onClick={() => toggleEnabled(profile)}
-                                    >
-                                        {profile.enabled
-                                            ? i18n.t(
-                                                  "settings.connections.disable_connection"
-                                              )
-                                            : i18n.t(
-                                                  "settings.connections.enable_connection"
-                                              )}
-                                    </Button>
-                                </VStack>
+                                <NwcDetails
+                                    onEdit={() => editProfile(profile)}
+                                    profile={profile}
+                                    refetch={refetch}
+                                />
                             </Collapser>
                         )}
                     </For>
@@ -204,37 +292,24 @@ function Nwc() {
             </Show>
             <SimpleDialog
                 open={dialogOpen()}
-                setOpen={setDialogOpen}
-                title={i18n.t("settings.connections.new_connection")}
+                setOpen={handleToggleOpen}
+                title={
+                    profileToOpen()
+                        ? i18n.t("settings.connections.edit_connection")
+                        : i18n.t("settings.connections.add_connection")
+                }
             >
-                <div class="flex flex-col gap-4 py-4">
-                    <TextField
-                        name="name"
-                        label={i18n.t(
-                            "settings.connections.new_connection_label"
-                        )}
-                        ref={noop}
-                        value={formName()}
-                        onInput={(e) => setFormName(e.currentTarget.value)}
-                        error={""}
-                        onBlur={noop}
-                        onChange={noop}
-                        placeholder={i18n.t(
-                            "settings.connections.new_connection_placeholder"
-                        )}
-                    />
-                    <Show when={error()}>
-                        <InfoBox accent="red">{error()}</InfoBox>
-                    </Show>
-                </div>
-
-                <Button
-                    intent="blue"
-                    loading={createLoading()}
-                    onClick={createConnection}
+                <ErrorBoundary
+                    fallback={(e) => (
+                        <InfoBox accent="red">{e.message}</InfoBox>
+                    )}
                 >
-                    {i18n.t("settings.connections.create_connection")}
-                </Button>
+                    <NWCEditor
+                        initialNWA={searchParams.nwa}
+                        initialProfileIndex={profileToOpen()}
+                        onSave={handleSave}
+                    />
+                </ErrorBoundary>
             </SimpleDialog>
             <SimpleDialog
                 open={callbackDialogOpen()}
@@ -249,16 +324,24 @@ function Nwc() {
     );
 }
 
-export default function Connections() {
+export function Connections() {
     const i18n = useI18n();
     return (
         <MutinyWalletGuard>
             <SafeArea>
                 <DefaultMain>
-                    <BackLink
-                        href="/settings"
-                        title={i18n.t("settings.header")}
-                    />
+                    <div class="flex items-center justify-between">
+                        <BackLink
+                            href="/settings"
+                            title={i18n.t("settings.header")}
+                        />
+                        <A
+                            class="rounded-lg p-2 hover:bg-white/5 active:bg-m-blue md:hidden"
+                            href="/scanner"
+                        >
+                            <img src={scan} alt="Scan" class="h-6 w-6" />
+                        </A>{" "}
+                    </div>
                     <LargeHeader>
                         {i18n.t("settings.connections.title")}
                     </LargeHeader>

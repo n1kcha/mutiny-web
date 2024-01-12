@@ -1,9 +1,8 @@
-import { ExternalLink } from "@mutinywallet/ui";
-
 import {
     BackLink,
     DefaultMain,
     DeleteEverything,
+    ExternalLink,
     ImportExport,
     LargeHeader,
     LoadingIndicator,
@@ -30,7 +29,7 @@ function EmergencyStack() {
     );
 }
 
-export default function EmergencyKit() {
+export function EmergencyKit() {
     const i18n = useI18n();
     return (
         <SafeArea>

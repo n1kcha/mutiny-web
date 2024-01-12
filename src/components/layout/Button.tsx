@@ -1,11 +1,12 @@
-import { LoadingSpinner } from "@mutinywallet/ui";
+import { A } from "@solidjs/router";
 import { JSX, ParentComponent, Show, splitProps } from "solid-js";
 import { Dynamic } from "solid-js/web";
-import { A } from "solid-start";
+
+import { LoadingSpinner } from "~/components";
 
 // Help from https://github.com/arpadgabor/credee/blob/main/packages/www/src/components/ui/button.tsx
 
-export type CommonButtonStyleProps = {
+type CommonButtonStyleProps = {
     intent?: "active" | "inactive" | "blue" | "red" | "green" | "text";
     layout?: "flex" | "pad" | "small" | "xs" | "full";
 };
@@ -34,7 +35,7 @@ export const Button: ParentComponent<ButtonProps> = (props) => {
             class="rounded-xl p-3 font-semibold transition disabled:bg-neutral-400/10 disabled:text-white/20 disabled:shadow-inner-button-disabled"
             classList={{
                 "bg-white text-black": local.intent === "active",
-                "bg-transparent text-white":
+                "bg-neutral-900 text-white":
                     !local.intent || local.intent === "inactive",
                 "border border-white hover:text-[#3B6CCC]":
                     !local.intent || !!local.intent.match(/(active|inactive)/),

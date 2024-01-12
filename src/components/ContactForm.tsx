@@ -1,18 +1,33 @@
-import { createForm, required, SubmitHandler } from "@modular-forms/solid";
-
 import {
-    Button,
-    ContactFormValues,
-    LargeHeader,
-    TextField,
-    VStack
-} from "~/components";
+    createForm,
+    custom,
+    email,
+    required,
+    SubmitHandler
+} from "@modular-forms/solid";
+
+import { Button, ContactFormValues, TextField, VStack } from "~/components";
 import { useI18n } from "~/i18n/context";
+import { hexpubFromNpub } from "~/utils";
+
+const validateNpub = async (value?: string) => {
+    if (!value) {
+        return false;
+    }
+    try {
+        const hexpub = await hexpubFromNpub(value);
+        if (!hexpub) {
+            return false;
+        }
+        return true;
+    } catch (e) {
+        return false;
+    }
+};
 
 export function ContactForm(props: {
     handleSubmit: SubmitHandler<ContactFormValues>;
     initialValues?: ContactFormValues;
-    title: string;
     cta: string;
 }) {
     const i18n = useI18n();
@@ -26,7 +41,6 @@ export function ContactForm(props: {
             class="mx-auto flex w-full max-w-[400px] flex-1 flex-col justify-around gap-4"
         >
             <div>
-                <LargeHeader>{props.title}</LargeHeader>
                 <VStack>
                     <Field
                         name="name"
@@ -42,11 +56,41 @@ export function ContactForm(props: {
                             />
                         )}
                     </Field>
-                    {/* <Field name="npub" validate={[]}>
+                    <Field
+                        name="ln_address"
+                        validate={[
+                            required(
+                                i18n.t("contacts.error_ln_address_missing")
+                            ),
+                            email(i18n.t("contacts.email_error"))
+                        ]}
+                    >
                         {(field, props) => (
-                            <TextField  {...props} placeholder='npub...' value={field.value} error={field.error} label="Nostr npub or NIP-05 (optional)" />
+                            <TextField
+                                {...props}
+                                placeholder="example@example.com"
+                                value={field.value}
+                                error={field.error}
+                                label={i18n.t("contacts.ln_address")}
+                            />
                         )}
-                    </Field> */}
+                    </Field>
+                    <Field
+                        name="npub"
+                        validate={[
+                            custom(validateNpub, i18n.t("contacts.npub_error"))
+                        ]}
+                    >
+                        {(field, props) => (
+                            <TextField
+                                {...props}
+                                placeholder="npub1..."
+                                value={field.value}
+                                error={field.error}
+                                label={i18n.t("contacts.npub")}
+                            />
+                        )}
+                    </Field>
                 </VStack>
             </div>
             <VStack>

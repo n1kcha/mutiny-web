@@ -1,6 +1,8 @@
-import { ExternalLink } from "@mutinywallet/ui";
-import { A, Title } from "solid-start";
+import { Title } from "@solidjs/meta";
+import { A } from "@solidjs/router";
+import { onMount } from "solid-js";
 
+import { ExternalLink } from "~/components";
 import {
     Button,
     DefaultMain,
@@ -11,8 +13,20 @@ import {
 } from "~/components/layout";
 import { useI18n } from "~/i18n/context";
 
+export function SimpleErrorDisplay(props: { error: Error }) {
+    return (
+        <p class="rounded-xl bg-white/10 p-4 font-mono">
+            <span class="font-bold">{props.error.name}</span>:{" "}
+            {props.error.message}
+        </p>
+    );
+}
+
 export function ErrorDisplay(props: { error: Error }) {
     const i18n = useI18n();
+    onMount(() => {
+        console.error(props.error);
+    });
     return (
         <SafeArea>
             <Title>{i18n.t("error.general.oh_no")}</Title>
@@ -21,19 +35,21 @@ export function ErrorDisplay(props: { error: Error }) {
                 <SmallHeader>
                     {i18n.t("error.general.never_should_happen")}
                 </SmallHeader>
-                <p class="rounded-xl bg-white/10 p-4 font-mono">
-                    <span class="font-bold">{props.error.name}</span>:{" "}
-                    {props.error.message}
-                </p>
+                <SimpleErrorDisplay error={props.error} />
                 <NiceP>
                     {i18n.t("error.general.try_reloading")}{" "}
                     <ExternalLink href="https://matrix.to/#/#mutiny-community:lightninghackers.com">
                         {i18n.t("error.general.support_link")}
                     </ExternalLink>
                 </NiceP>
+                <Button onClick={() => window.location.reload()}>
+                    {i18n.t("error.reload")}
+                </Button>
                 <NiceP>
                     {i18n.t("error.general.getting_desperate")}{" "}
-                    <A href="/emergencykit">{i18n.t("error.emergency_link")}</A>
+                    <A href="/settings/emergencykit">
+                        {i18n.t("error.emergency_link")}
+                    </A>
                 </NiceP>
                 <div class="h-full" />
                 <Button

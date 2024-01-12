@@ -1,5 +1,3 @@
-import { NwcProfile } from "@mutinywallet/mutiny-wasm";
-import { LoadingSpinner } from "@mutinywallet/ui";
 import {
     createEffect,
     createResource,
@@ -9,15 +7,25 @@ import {
     Show,
     Switch
 } from "solid-js";
-import { A } from "solid-start";
 
 import bolt from "~/assets/icons/bolt.svg";
 import greenCheck from "~/assets/icons/green-check.svg";
 import redClose from "~/assets/icons/red-close.svg";
-import { ActivityAmount, Card, InfoBox, VStack } from "~/components";
+import {
+    ActivityAmount,
+    Card,
+    InfoBox,
+    LoadingSpinner,
+    VStack
+} from "~/components";
 import { useI18n } from "~/i18n/context";
 import { useMegaStore } from "~/state/megaStore";
-import { createDeepSignal, eify, formatExpiration } from "~/utils";
+import {
+    createDeepSignal,
+    eify,
+    formatExpiration,
+    vibrateSuccess
+} from "~/utils";
 
 type PendingItem = {
     id: string;
@@ -33,10 +41,11 @@ export function PendingNwc() {
     const [error, setError] = createSignal<Error>();
 
     async function fetchPendingRequests() {
-        const profiles: NwcProfile[] =
-            await state.mutiny_wallet?.get_nwc_profiles();
+        const profiles = await state.mutiny_wallet?.get_nwc_profiles();
+        if (!profiles) return [];
 
         const pending = await state.mutiny_wallet?.get_pending_nwc_invoices();
+        if (!pending) return [];
 
         const pendingItems: PendingItem[] = [];
 
@@ -66,11 +75,23 @@ export function PendingNwc() {
     async function payItem(item: PendingItem) {
         try {
             setPaying(item.id);
-            const nodes = await state.mutiny_wallet?.list_nodes();
-            await state.mutiny_wallet?.approve_invoice(item.id, nodes[0]);
+            await state.mutiny_wallet?.approve_invoice(item.id);
+            await vibrateSuccess();
         } catch (e) {
-            setError(eify(e));
-            console.error(e);
+            const err = eify(e);
+            // If we've already paid this invoice, just ignore the error
+            // we just want to remove it from the list and continue
+            if (err.message === "An invoice must not get payed twice.") {
+                // wrap in try/catch so we don't crash if the invoice is already gone
+                try {
+                    await state.mutiny_wallet?.deny_invoice(item.id);
+                } catch (_e) {
+                    // do nothing
+                }
+            } else {
+                setError(err);
+                console.error(e);
+            }
         } finally {
             setPaying("");
             refetch();
@@ -82,6 +103,17 @@ export function PendingNwc() {
         const toApprove = [...pendingRequests()!];
         for (const item of toApprove) {
             await payItem(item);
+        }
+    }
+
+    async function denyAll() {
+        try {
+            await state.mutiny_wallet?.deny_all_pending_nwc();
+        } catch (e) {
+            setError(eify(e));
+            console.error(e);
+        } finally {
+            refetch();
         }
     }
 
@@ -193,14 +225,12 @@ export function PendingNwc() {
                     >
                         {i18n.t("settings.connections.pending_nwc.approve_all")}
                     </button>
-                    <A
-                        href="/settings/connections"
-                        class="self-center font-semibold text-m-red no-underline active:text-m-red/80"
+                    <button
+                        class="font-semibold text-m-red active:text-m-red/80"
+                        onClick={denyAll}
                     >
-                        {i18n.t(
-                            "settings.connections.pending_nwc.configure_link"
-                        )}
-                    </A>
+                        {i18n.t("settings.connections.pending_nwc.deny_all")}
+                    </button>
                 </div>
             </Card>
         </Show>

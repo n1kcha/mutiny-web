@@ -1,9 +1,10 @@
+/* @refresh reload */
+
 import {
-    Contact,
     MutinyBip21RawMaterials,
     MutinyInvoice
 } from "@mutinywallet/mutiny-wasm";
-import { ExternalLink } from "@mutinywallet/ui";
+import { useNavigate } from "@solidjs/router";
 import {
     createEffect,
     createMemo,
@@ -14,20 +15,21 @@ import {
     Show,
     Switch
 } from "solid-js";
-import { useNavigate } from "solid-start";
 
 import side2side from "~/assets/icons/side-to-side.svg";
 import {
-    AmountCard,
+    ActivityDetailsModal,
+    AmountEditable,
     AmountFiat,
     AmountSats,
     BackButton,
     BackLink,
     Button,
-    Card,
+    Checkbox,
     DefaultMain,
     Fee,
     FeesModal,
+    HackActivityType,
     Indicator,
     InfoBox,
     IntegratedQr,
@@ -35,24 +37,17 @@ import {
     MegaCheck,
     MutinyWalletGuard,
     NavBar,
-    SafeArea,
+    ReceiveWarnings,
     showToast,
     SimpleDialog,
+    SimpleInput,
     StyledRadioGroup,
     SuccessModal,
-    TagEditor,
     VStack
 } from "~/components";
 import { useI18n } from "~/i18n/context";
-import { matchError } from "~/logic/errorDispatch";
-import { Network } from "~/logic/mutinyWalletSetup";
 import { useMegaStore } from "~/state/megaStore";
-import {
-    eify,
-    mempoolTxUrl,
-    MutinyTagItem,
-    objectToSearchParams
-} from "~/utils";
+import { eify, objectToSearchParams, vibrateSuccess } from "~/utils";
 
 type OnChainTx = {
     transaction: {
@@ -109,34 +104,37 @@ function FeeWarning(props: { fee: bigint; flavor: ReceiveFlavor }) {
     );
 }
 
-export default function Receive() {
-    const [state, _actions] = useMegaStore();
+export function Receive() {
+    const [state, actions] = useMegaStore();
     const navigate = useNavigate();
     const i18n = useI18n();
 
-    const [amount, setAmount] = createSignal("");
+    const [amount, setAmount] = createSignal<bigint>(0n);
+    const [whatForInput, setWhatForInput] = createSignal("");
+
     const [receiveState, setReceiveState] = createSignal<ReceiveState>("edit");
     const [bip21Raw, setBip21Raw] = createSignal<MutinyBip21RawMaterials>();
     const [unified, setUnified] = createSignal("");
-    const [shouldShowAmountEditor, setShouldShowAmountEditor] =
-        createSignal(true);
 
     const [lspFee, setLspFee] = createSignal(0n);
-
-    // Tagging stuff
-    const [selectedValues, setSelectedValues] = createSignal<MutinyTagItem[]>(
-        []
-    );
 
     // The data we get after a payment
     const [paymentTx, setPaymentTx] = createSignal<OnChainTx>();
     const [paymentInvoice, setPaymentInvoice] = createSignal<MutinyInvoice>();
 
-    // The flavor of the receive
-    const [flavor, setFlavor] = createSignal<ReceiveFlavor>("unified");
+    // The flavor of the receive (defaults to unified)
+    const [flavor, setFlavor] = createSignal<ReceiveFlavor>(
+        state.preferredInvoiceType
+    );
 
     // loading state for the continue button
     const [loading, setLoading] = createSignal(false);
+    const [error, setError] = createSignal<string>("");
+
+    // Details Modal
+    const [detailsOpen, setDetailsOpen] = createSignal(false);
+    const [detailsKind, setDetailsKind] = createSignal<HackActivityType>();
+    const [detailsId, setDetailsId] = createSignal<string>("");
 
     const RECEIVE_FLAVORS = [
         {
@@ -156,6 +154,8 @@ export default function Receive() {
         }
     ];
 
+    const [rememberChoice, setRememberChoice] = createSignal(false);
+
     const receiveString = createMemo(() => {
         if (unified() && receiveState() === "show") {
             if (flavor() === "unified") {
@@ -169,52 +169,40 @@ export default function Receive() {
     });
 
     function clearAll() {
-        setAmount("");
+        setAmount(0n);
         setReceiveState("edit");
         setBip21Raw(undefined);
         setUnified("");
         setPaymentTx(undefined);
         setPaymentInvoice(undefined);
-        setSelectedValues([]);
     }
 
-    async function processContacts(
-        contacts: Partial<MutinyTagItem>[]
-    ): Promise<string[]> {
-        if (contacts.length) {
-            const first = contacts![0];
+    function openDetailsModal() {
+        const paymentTxId =
+            paidState() === "onchain_paid"
+                ? paymentTx()
+                    ? paymentTx()?.txid
+                    : undefined
+                : paymentInvoice()
+                ? paymentInvoice()?.payment_hash
+                : undefined;
+        const kind = paidState() === "onchain_paid" ? "OnChain" : "Lightning";
 
-            if (!first.name) {
-                return [];
-            }
+        console.log("Opening details modal: ", paymentTxId, kind);
 
-            if (!first.id && first.name) {
-                const c = new Contact(
-                    first.name,
-                    undefined,
-                    undefined,
-                    undefined
-                );
-                try {
-                    const newContactId =
-                        await state.mutiny_wallet?.create_new_contact(c);
-                    if (newContactId) {
-                        return [newContactId];
-                    }
-                } catch (e) {
-                    console.error(e);
-                }
-            }
-
-            if (first.id) {
-                return [first.id];
-            }
+        if (!paymentTxId) {
+            console.warn("No id provided to openDetailsModal");
+            return;
         }
-
-        return [];
+        if (paymentTxId !== undefined) {
+            setDetailsId(paymentTxId);
+        }
+        setDetailsKind(kind);
+        setDetailsOpen(true);
     }
 
-    async function getUnifiedQr(amount: string) {
+    async function getUnifiedQr(amount: bigint) {
+        console.log("get unified amount", amount);
         const bigAmount = BigInt(amount);
         setLoading(true);
 
@@ -222,7 +210,7 @@ export default function Receive() {
         let tags;
 
         try {
-            tags = await processContacts(selectedValues());
+            tags = whatForInput() ? [whatForInput().trim()] : [];
         } catch (e) {
             showToast(eify(e));
             console.error(e);
@@ -233,12 +221,15 @@ export default function Receive() {
         // Happy path
         // First we try to get both an invoice and an address
         try {
+            console.log("big amount", bigAmount);
             const raw = await state.mutiny_wallet?.create_bip21(
                 bigAmount,
                 tags
             );
             // Save the raw info so we can watch the address and invoice
             setBip21Raw(raw);
+
+            console.log("raw", raw);
 
             const params = objectToSearchParams({
                 amount: raw?.btc_amount,
@@ -248,8 +239,12 @@ export default function Receive() {
             setLoading(false);
             return `bitcoin:${raw?.address}?${params}`;
         } catch (e) {
-            showToast(matchError(e));
             console.error(e);
+            if (e === "Satoshi amount is invalid") {
+                setError(i18n.t("receive.error_under_min_lightning"));
+            } else {
+                setError(i18n.t("receive.error_creating_unified"));
+            }
         }
 
         // If we didn't return before this, that means create_bip21 failed
@@ -266,7 +261,7 @@ export default function Receive() {
             return raw?.address;
         } catch (e) {
             // If THAT failed we're really screwed
-            showToast(matchError(e));
+            showToast(eify(i18n.t("receive.error_creating_address")));
             console.error(e);
         } finally {
             setLoading(false);
@@ -276,11 +271,16 @@ export default function Receive() {
     async function onSubmit(e: Event) {
         e.preventDefault();
 
-        const unifiedQr = await getUnifiedQr(amount());
+        await getQr();
+    }
 
-        setUnified(unifiedQr || "");
-        setReceiveState("show");
-        setShouldShowAmountEditor(false);
+    async function getQr() {
+        if (amount()) {
+            const unifiedQr = await getUnifiedQr(amount());
+
+            setUnified(unifiedQr || "");
+            setReceiveState("show");
+        }
     }
 
     async function checkIfPaid(
@@ -305,6 +305,7 @@ export default function Receive() {
                     if (invoice && invoice.paid) {
                         setReceiveState("paid");
                         setPaymentInvoice(invoice);
+                        await vibrateSuccess();
                         return "lightning_paid";
                     }
                 }
@@ -316,6 +317,7 @@ export default function Receive() {
                 if (tx) {
                     setReceiveState("paid");
                     setPaymentTx(tx);
+                    await vibrateSuccess();
                     return "onchain_paid";
                 }
             } catch (e) {
@@ -326,12 +328,13 @@ export default function Receive() {
 
     function selectFlavor(flavor: string) {
         setFlavor(flavor as ReceiveFlavor);
+        if (rememberChoice()) {
+            actions.setPreferredInvoiceType(flavor as ReceiveFlavor);
+        }
         setMethodChooserOpen(false);
     }
 
     const [paidState, { refetch }] = createResource(bip21Raw, checkIfPaid);
-
-    const network = state.mutiny_wallet?.get_network() as Network;
 
     createEffect(() => {
         const interval = setInterval(() => {
@@ -346,179 +349,174 @@ export default function Receive() {
 
     return (
         <MutinyWalletGuard>
-            <SafeArea>
-                <DefaultMain>
-                    <Show
-                        when={receiveState() === "show"}
-                        fallback={<BackLink />}
-                    >
-                        <BackButton
-                            onClick={() => setReceiveState("edit")}
-                            title={i18n.t("receive.edit")}
-                            showOnDesktop
-                        />
-                    </Show>
-                    <LargeHeader
-                        action={
-                            receiveState() === "show" && (
-                                <Indicator>
-                                    {i18n.t("receive.checking")}
-                                </Indicator>
-                            )
-                        }
-                    >
-                        {i18n.t("receive.receive_bitcoin")}
-                    </LargeHeader>
-                    <Switch>
-                        <Match when={!unified() || receiveState() === "edit"}>
-                            <div class="flex flex-1 flex-col gap-8">
-                                <AmountCard
-                                    initialOpen={shouldShowAmountEditor()}
-                                    amountSats={amount() || "0"}
-                                    setAmountSats={setAmount}
-                                    isAmountEditable
-                                    exitRoute={amount() ? "/receive" : "/"}
-                                />
-
-                                <Card title={i18n.t("common.private_tags")}>
-                                    <TagEditor
-                                        selectedValues={selectedValues()}
-                                        setSelectedValues={setSelectedValues}
-                                        placeholder={i18n.t(
-                                            "receive.receive_add_the_sender"
-                                        )}
-                                    />
-                                </Card>
-
-                                <div class="flex-1" />
-                                <VStack>
-                                    <Button
-                                        disabled={!amount()}
-                                        intent="green"
-                                        onClick={onSubmit}
-                                        loading={loading()}
-                                    >
-                                        {i18n.t("common.continue")}
-                                    </Button>
-                                </VStack>
-                            </div>
-                        </Match>
-                        <Match when={unified() && receiveState() === "show"}>
-                            <FeeWarning fee={lspFee()} flavor={flavor()} />
-                            <IntegratedQr
-                                value={receiveString() ?? ""}
-                                amountSats={amount() || "0"}
-                                kind={flavor()}
+            <DefaultMain>
+                <Show when={receiveState() === "show"} fallback={<BackLink />}>
+                    <BackButton
+                        onClick={() => setReceiveState("edit")}
+                        title={i18n.t("receive.edit")}
+                        showOnDesktop
+                    />
+                </Show>
+                <LargeHeader
+                    action={
+                        receiveState() === "show" && (
+                            <Indicator>{i18n.t("receive.checking")}</Indicator>
+                        )
+                    }
+                >
+                    {i18n.t("receive.receive_bitcoin")}
+                </LargeHeader>
+                <Switch>
+                    <Match when={!unified() || receiveState() === "edit"}>
+                        <div class="flex-1" />
+                        <VStack>
+                            <AmountEditable
+                                initialAmountSats={amount() || "0"}
+                                setAmountSats={setAmount}
+                                onSubmit={getQr}
                             />
-                            <p class="text-center text-neutral-400">
-                                {i18n.t("receive.keep_mutiny_open")}
-                            </p>
-                            {/* Only show method chooser when we have an invoice */}
-                            <Show when={bip21Raw()?.invoice}>
-                                <button
-                                    class="mx-auto flex items-center gap-2 p-2 font-bold text-m-grey-400"
-                                    onClick={() => setMethodChooserOpen(true)}
-                                >
-                                    <span>
-                                        {i18n.t("receive.choose_format")}
-                                    </span>
-                                    <img class="h-4 w-4" src={side2side} />
-                                </button>
-                                <SimpleDialog
-                                    title={i18n.t(
-                                        "receive.choose_payment_format"
-                                    )}
-                                    open={methodChooserOpen()}
-                                    setOpen={(open) =>
-                                        setMethodChooserOpen(open)
+                            <ReceiveWarnings amountSats={amount() || "0"} />
+                        </VStack>
+                        <div class="flex-1" />
+                        <VStack>
+                            <form onSubmit={onSubmit}>
+                                <SimpleInput
+                                    type="text"
+                                    value={whatForInput()}
+                                    placeholder={i18n.t("receive.what_for")}
+                                    onInput={(e) =>
+                                        setWhatForInput(e.currentTarget.value)
                                     }
-                                >
-                                    <StyledRadioGroup
-                                        value={flavor()}
-                                        onValueChange={selectFlavor}
-                                        choices={RECEIVE_FLAVORS}
-                                        accent="white"
-                                        vertical
-                                    />
-                                </SimpleDialog>
-                            </Show>
-                        </Match>
-                        <Match when={receiveState() === "paid"}>
-                            <SuccessModal
-                                open={!!paidState()}
-                                setOpen={(open: boolean) => {
-                                    if (!open) clearAll();
-                                }}
-                                onConfirm={() => {
-                                    clearAll();
-                                    navigate("/");
-                                }}
+                                />
+                            </form>
+                            <Button
+                                disabled={!amount()}
+                                intent="green"
+                                onClick={onSubmit}
+                                loading={loading()}
                             >
-                                <MegaCheck />
-                                <h1 class="mb-2 mt-4 w-full text-center text-2xl font-semibold md:text-3xl">
-                                    {receiveState() === "paid" &&
-                                    paidState() === "lightning_paid"
-                                        ? i18n.t("receive.payment_received")
-                                        : i18n.t("receive.payment_initiated")}
-                                </h1>
-                                <div class="flex flex-col items-center gap-1">
-                                    <div class="text-xl">
-                                        <AmountSats
-                                            amountSats={
-                                                receiveState() === "paid" &&
-                                                paidState() === "lightning_paid"
-                                                    ? paymentInvoice()
-                                                          ?.amount_sats
-                                                    : paymentTx()?.received
-                                            }
-                                            icon="plus"
-                                        />
-                                    </div>
-                                    <div class="text-white/70">
-                                        <AmountFiat
-                                            amountSats={
-                                                receiveState() === "paid" &&
-                                                paidState() === "lightning_paid"
-                                                    ? paymentInvoice()
-                                                          ?.amount_sats
-                                                    : paymentTx()?.received
-                                            }
-                                            denominationSize="sm"
-                                        />
-                                    </div>
+                                {i18n.t("common.continue")}
+                            </Button>
+                        </VStack>
+                    </Match>
+                    <Match when={unified() && receiveState() === "show"}>
+                        <FeeWarning fee={lspFee()} flavor={flavor()} />
+                        <Show when={error()}>
+                            <InfoBox accent="red">
+                                <p>{error()}</p>
+                            </InfoBox>
+                        </Show>
+                        <IntegratedQr
+                            value={receiveString() ?? ""}
+                            amountSats={amount() ? amount().toString() : "0"}
+                            kind={flavor()}
+                        />
+                        <p class="text-center text-neutral-400">
+                            {i18n.t("receive.keep_mutiny_open")}
+                        </p>
+                        {/* Only show method chooser when we have an invoice */}
+                        <Show when={bip21Raw()?.invoice}>
+                            <button
+                                class="mx-auto flex items-center gap-2 pb-8 font-bold text-m-grey-400"
+                                onClick={() => setMethodChooserOpen(true)}
+                            >
+                                <span>{i18n.t("receive.choose_format")}</span>
+                                <img class="h-4 w-4" src={side2side} />
+                            </button>
+                            <SimpleDialog
+                                title={i18n.t("receive.choose_payment_format")}
+                                open={methodChooserOpen()}
+                                setOpen={(open) => setMethodChooserOpen(open)}
+                            >
+                                <StyledRadioGroup
+                                    initialValue={flavor()}
+                                    onValueChange={selectFlavor}
+                                    choices={RECEIVE_FLAVORS}
+                                    accent="white"
+                                    vertical
+                                    delayOnChange
+                                />
+                                <Checkbox
+                                    label={i18n.t("receive.remember_choice")}
+                                    checked={rememberChoice()}
+                                    onChange={setRememberChoice}
+                                />
+                            </SimpleDialog>
+                        </Show>
+                    </Match>
+                    <Match when={receiveState() === "paid"}>
+                        <SuccessModal
+                            open={!!paidState()}
+                            setOpen={(open: boolean) => {
+                                if (!open) clearAll();
+                            }}
+                            onConfirm={() => {
+                                clearAll();
+                                navigate("/");
+                            }}
+                        >
+                            <Show when={detailsId() && detailsKind()}>
+                                <ActivityDetailsModal
+                                    open={detailsOpen()}
+                                    kind={detailsKind()}
+                                    id={detailsId()}
+                                    setOpen={setDetailsOpen}
+                                />
+                            </Show>
+                            <MegaCheck />
+                            <h1 class="mb-2 mt-4 w-full text-center text-2xl font-semibold md:text-3xl">
+                                {receiveState() === "paid" &&
+                                paidState() === "lightning_paid"
+                                    ? i18n.t("receive.payment_received")
+                                    : i18n.t("receive.payment_initiated")}
+                            </h1>
+                            <div class="flex flex-col items-center gap-1">
+                                <div class="text-xl">
+                                    <AmountSats
+                                        amountSats={
+                                            receiveState() === "paid" &&
+                                            paidState() === "lightning_paid"
+                                                ? paymentInvoice()?.amount_sats
+                                                : paymentTx()?.received
+                                        }
+                                        icon="plus"
+                                    />
                                 </div>
-                                <hr class="w-16 bg-m-grey-400" />
-                                <Show
-                                    when={
-                                        receiveState() === "paid" &&
-                                        paidState() === "lightning_paid"
-                                    }
+                                <div class="text-white/70">
+                                    <AmountFiat
+                                        amountSats={
+                                            receiveState() === "paid" &&
+                                            paidState() === "lightning_paid"
+                                                ? paymentInvoice()?.amount_sats
+                                                : paymentTx()?.received
+                                        }
+                                        denominationSize="sm"
+                                    />
+                                </div>
+                            </div>
+                            <hr class="w-16 bg-m-grey-400" />
+                            <Show
+                                when={
+                                    receiveState() === "paid" &&
+                                    paidState() === "lightning_paid"
+                                }
+                            >
+                                <Fee amountSats={lspFee()} />
+                            </Show>
+                            {/*TODO: Confirmation time estimate still not possible needs to be implemented in mutiny-node first*/}
+                            <Show when={receiveState() === "paid"}>
+                                <p
+                                    class="cursor-pointer underline"
+                                    onClick={openDetailsModal}
                                 >
-                                    <Fee amountSats={lspFee()} />
-                                </Show>
-                                {/*TODO: Confirmation time estimate still not possible needs to be implemented in mutiny-node first
-                                {/*TODO: add internal payment detail page* for lightning*/}
-                                <Show
-                                    when={
-                                        receiveState() === "paid" &&
-                                        paidState() === "onchain_paid"
-                                    }
-                                >
-                                    <ExternalLink
-                                        href={mempoolTxUrl(
-                                            paymentTx()?.txid,
-                                            network
-                                        )}
-                                    >
-                                        {i18n.t("common.view_transaction")}
-                                    </ExternalLink>
-                                </Show>
-                            </SuccessModal>
-                        </Match>
-                    </Switch>
-                </DefaultMain>
-                <NavBar activeTab="receive" />
-            </SafeArea>
+                                    {i18n.t("common.view_payment_details")}
+                                </p>
+                            </Show>
+                        </SuccessModal>
+                    </Match>
+                </Switch>
+            </DefaultMain>
+            <NavBar activeTab="receive" />
         </MutinyWalletGuard>
     );
 }

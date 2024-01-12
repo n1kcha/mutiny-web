@@ -1,406 +1,113 @@
-import { Dialog } from "@kobalte/core";
 import {
-    createResource,
+    createEffect,
     createSignal,
-    For,
-    Match,
     onCleanup,
     onMount,
     ParentComponent,
-    Show,
-    Switch
+    Show
 } from "solid-js";
-import { useNavigate } from "solid-start";
 
-import close from "~/assets/icons/close.svg";
-import currencySwap from "~/assets/icons/currency-swap.svg";
-import pencil from "~/assets/icons/pencil.svg";
-import { Button, FeesModal, InfoBox, InlineAmount, VStack } from "~/components";
+import { AmountSmall, BigMoney } from "~/components";
 import { useI18n } from "~/i18n/context";
-import { Network } from "~/logic/mutinyWalletSetup";
 import { useMegaStore } from "~/state/megaStore";
-import { DIALOG_CONTENT, DIALOG_POSITIONER } from "~/styles/dialogs";
-import { satsToUsd, usdToSats } from "~/utils";
-
-function fiatInputSanitizer(input: string): string {
-    // Make sure only numbers and a single decimal point are allowed
-    const numeric = input.replace(/[^0-9.]/g, "").replace(/(\..*)\./g, "$1");
-
-    // Remove leading zeros if not a decimal, add 0 if starts with a decimal
-    const cleaned = numeric.replace(/^0([^.]|$)/g, "$1").replace(/^\./g, "0.");
-
-    // If there are three characters after the decimal, shift the decimal
-    const shifted = cleaned.match(/(\.[0-9]{3}).*/g)
-        ? (parseFloat(cleaned) * 10).toFixed(2)
-        : cleaned;
-
-    // Truncate any numbers two past the decimal
-    const twoDecimals = shifted.replace(/(\.[0-9]{2}).*/g, "$1");
-
-    return twoDecimals;
-}
-
-function satsInputSanitizer(input: string): string {
-    // Make sure only numbers are allowed
-    const numeric = input.replace(/[^0-9]/g, "");
-    // If it starts with a 0, remove the 0
-    const noLeadingZero = numeric.replace(/^0([^.]|$)/g, "$1");
-
-    return noLeadingZero;
-}
-
-function SingleDigitButton(props: {
-    character: string;
-    onClick: (c: string) => void;
-    onClear: () => void;
-    fiat: boolean;
-}) {
-    const i18n = useI18n();
-    let holdTimer: ReturnType<typeof setTimeout> | undefined;
-    const holdThreshold = 500;
-
-    function onHold() {
-        if (
-            props.character === "DEL" ||
-            props.character === i18n.t("receive.amount_editable.del")
-        ) {
-            holdTimer = setTimeout(() => {
-                props.onClear();
-            }, holdThreshold);
-        }
-    }
-
-    function endHold() {
-        clearTimeout(holdTimer);
-    }
-
-    function onClick() {
-        props.onClick(props.character);
-
-        clearTimeout(holdTimer);
-    }
-
-    onCleanup(() => {
-        clearTimeout(holdTimer);
-    });
-
-    return (
-        // Skip the "." if it's fiat
-        <Show
-            when={props.fiat || !(props.character === ".")}
-            fallback={<div />}
-        >
-            <button
-                class="font-semi font-inter flex items-center justify-center rounded-lg p-2 text-4xl text-white active:bg-m-blue disabled:opacity-50 md:hover:bg-white/10"
-                onPointerDown={onHold}
-                onPointerUp={endHold}
-                onClick={onClick}
-            >
-                {props.character}
-            </button>
-        </Show>
-    );
-}
-
-function BigScalingText(props: { text: string; fiat: boolean }) {
-    const chars = () => props.text.length;
-    const i18n = useI18n();
-
-    return (
-        <h1
-            class="px-2 text-center text-4xl font-light transition-transform duration-300 ease-out"
-            classList={{
-                "scale-90": chars() >= 11,
-                "scale-95": chars() === 10,
-                "scale-100": chars() === 9,
-                "scale-105": chars() === 7,
-                "scale-110": chars() === 6,
-                "scale-125": chars() === 5,
-                "scale-150": chars() <= 4
-            }}
-        >
-            {props.text}&nbsp;
-            <span class="text-xl">
-                {props.fiat ? i18n.t("common.usd") : i18n.t("common.sats")}
-            </span>
-        </h1>
-    );
-}
-
-function SmallSubtleAmount(props: { text: string; fiat: boolean }) {
-    const i18n = useI18n();
-    return (
-        <h2 class="flex flex-row items-end text-xl font-light text-neutral-400">
-            ~{props.text}&nbsp;
-            <span class="text-base">
-                {props.fiat ? i18n.t("common.usd") : i18n.t("common.sats")}
-            </span>
-            <img
-                class={"pb-[4px] pl-[4px] hover:cursor-pointer"}
-                src={currencySwap}
-                height={24}
-                width={24}
-                alt="Swap currencies"
-            />
-        </h2>
-    );
-}
-
-function toDisplayHandleNaN(input: string, _fiat: boolean): string {
-    const parsed = Number(input);
-
-    //handle decimals so the user can always see the accurate amount
-    if (isNaN(parsed)) {
-        return "0";
-    } else if (parsed === Math.trunc(parsed) && input.endsWith(".")) {
-        return parsed.toLocaleString() + ".";
-    } else if (parsed === Math.trunc(parsed) && input.endsWith(".0")) {
-        return parsed.toFixed(1);
-    } else if (parsed === Math.trunc(parsed) && input.endsWith(".00")) {
-        return parsed.toFixed(2);
-    } else if (
-        parsed !== Math.trunc(parsed) &&
-        input.endsWith("0") &&
-        input.includes(".", input.length - 3)
-    ) {
-        return parsed.toFixed(2);
-    } else {
-        return parsed.toLocaleString();
-    }
-}
+import {
+    btcFloatRounding,
+    fiatInputSanitizer,
+    fiatToSats,
+    satsInputSanitizer,
+    satsToFiat,
+    toDisplayHandleNaN
+} from "~/utils";
 
 export const AmountEditable: ParentComponent<{
-    initialAmountSats: string;
-    initialOpen: boolean;
+    initialAmountSats: string | bigint;
     setAmountSats: (s: bigint) => void;
-    skipWarnings?: boolean;
-    exitRoute?: string;
     maxAmountSats?: bigint;
     fee?: string;
+    frozenAmount?: boolean;
+    onSubmit?: () => void;
 }> = (props) => {
-    const i18n = useI18n();
-    const navigate = useNavigate();
-    const [isOpen, setIsOpen] = createSignal(props.initialOpen);
     const [state, _actions] = useMegaStore();
     const [mode, setMode] = createSignal<"fiat" | "sats">("sats");
+    const i18n = useI18n();
     const [localSats, setLocalSats] = createSignal(
-        props.initialAmountSats || "0"
+        props.initialAmountSats.toString() || "0"
     );
     const [localFiat, setLocalFiat] = createSignal(
-        satsToUsd(
+        satsToFiat(
             state.price,
-            parseInt(props.initialAmountSats || "0") || 0,
-            false
+            parseInt(props.initialAmountSats.toString() || "0") || 0,
+            state.fiat
         )
     );
 
-    const FIXED_AMOUNTS_SATS = [
-        {
-            label: i18n.t("receive.amount_editable.fix_amounts.ten_k"),
-            amount: "10000"
-        },
-        {
-            label: i18n.t("receive.amount_editable.fix_amounts.one_hundred_k"),
-            amount: "100000"
-        },
-        {
-            label: i18n.t("receive.amount_editable.fix_amounts.one_million"),
-            amount: "1000000"
-        }
-    ];
-
-    const FIXED_AMOUNTS_USD = [
-        { label: "$1", amount: "1" },
-        { label: "$10", amount: "10" },
-        { label: "$100", amount: "100" }
-    ];
-
-    const CHARACTERS = [
-        "1",
-        "2",
-        "3",
-        "4",
-        "5",
-        "6",
-        "7",
-        "8",
-        "9",
-        ".",
-        "0",
-        i18n.t("receive.amount_editable.del")
-    ];
-
-    const displaySats = () => toDisplayHandleNaN(localSats(), false);
-    const displayFiat = () => `$${toDisplayHandleNaN(localFiat(), true)}`;
+    const displaySats = () => toDisplayHandleNaN(localSats());
+    const displayFiat = () =>
+        state.price !== 0 ? toDisplayHandleNaN(localFiat(), state.fiat) : "…";
 
     let satsInputRef!: HTMLInputElement;
     let fiatInputRef!: HTMLInputElement;
 
-    const [inboundCapacity] = createResource(async () => {
-        try {
-            const channels = await state.mutiny_wallet?.list_channels();
-            let inbound = 0;
-
-            for (const channel of channels) {
-                inbound += channel.size - (channel.balance + channel.reserve);
-            }
-
-            return inbound;
-        } catch (e) {
-            console.error(e);
-            return 0;
+    createEffect(() => {
+        if (focusState() === "focused") {
+            props.setAmountSats(BigInt(localSats()));
         }
     });
-
-    const warningText = () => {
-        if ((state.balance?.lightning || 0n) === 0n) {
-            const network = state.mutiny_wallet?.get_network() as Network;
-            if (network === "bitcoin") {
-                return i18n.t("receive.amount_editable.receive_too_small", {
-                    amount: "50,000"
-                });
-            } else {
-                return i18n.t("receive.amount_editable.receive_too_small", {
-                    amount: "10,000"
-                });
-            }
-        }
-
-        const parsed = Number(localSats());
-        if (isNaN(parsed)) {
-            return undefined;
-        }
-
-        if (parsed > (inboundCapacity() || 0)) {
-            return i18n.t("receive.amount_editable.setup_fee_lightning");
-        }
-
-        return undefined;
-    };
-
-    const betaWarning = () => {
-        const parsed = Number(localSats());
-        if (isNaN(parsed)) {
-            return undefined;
-        }
-
-        if (parsed >= 2099999997690000) {
-            // If over 21 million bitcoin, warn that too much
-            return i18n.t("receive.amount_editable.more_than_21m");
-        } else if (parsed >= 4000000) {
-            // If over 4 million sats, warn that it's a beta bro
-            return i18n.t("receive.amount_editable.too_big_for_beta");
-        }
-    };
-
-    function handleCharacterInput(character: string) {
-        const isFiatMode = mode() === "fiat";
-        const inputSanitizer = isFiatMode
-            ? fiatInputSanitizer
-            : satsInputSanitizer;
-        const localValue = isFiatMode ? localFiat : localSats;
-
-        let sane;
-
-        if (
-            character === "DEL" ||
-            character === i18n.t("receive.amount_editable.del")
-        ) {
-            if (localValue().length <= 1) {
-                sane = "0";
-            } else {
-                sane = inputSanitizer(localValue().slice(0, -1));
-            }
-        } else {
-            if (localValue() === "0") {
-                sane = inputSanitizer(character);
-            } else {
-                sane = inputSanitizer(localValue() + character);
-            }
-        }
-
-        if (isFiatMode) {
-            setLocalFiat(sane);
-            setLocalSats(
-                usdToSats(state.price, parseFloat(sane || "0") || 0, false)
-            );
-        } else {
-            setLocalSats(sane);
-            setLocalFiat(satsToUsd(state.price, Number(sane) || 0, false));
-        }
-
-        // After a button press make sure we re-focus the input
-        focus();
-    }
-
-    function handleClear() {
-        const isFiatMode = mode() === "fiat";
-
-        if (isFiatMode) {
-            setLocalFiat("0");
-            setLocalSats(usdToSats(state.price, parseFloat("0") || 0, false));
-        } else {
-            setLocalSats("0");
-            setLocalFiat(satsToUsd(state.price, Number("0") || 0, false));
-        }
-
-        // After a button press make sure we re-focus the input
-        focus();
-    }
-
-    function setFixedAmount(amount: string) {
-        if (mode() === "fiat") {
-            setLocalFiat(amount);
-            setLocalSats(
-                usdToSats(state.price, parseFloat(amount || "0") || 0, false)
-            );
-        } else {
-            setLocalSats(amount);
-            setLocalFiat(satsToUsd(state.price, Number(amount) || 0, false));
-        }
-    }
-
-    function handleClose() {
-        props.setAmountSats(BigInt(props.initialAmountSats));
-        setIsOpen(false);
-        setLocalSats(props.initialAmountSats);
-        setLocalFiat(
-            satsToUsd(
-                state.price,
-                parseInt(props.initialAmountSats || "0") || 0,
-                false
-            )
-        );
-        props.exitRoute && navigate(props.exitRoute);
-    }
-
-    // What we're all here for in the first place: returning a value
-    function handleSubmit(e: SubmitEvent | MouseEvent) {
-        e.preventDefault();
-        props.setAmountSats(BigInt(localSats()));
-        setLocalFiat(satsToUsd(state.price, Number(localSats()) || 0, false));
-        setIsOpen(false);
-    }
 
     function handleSatsInput(e: InputEvent) {
         const { value } = e.target as HTMLInputElement;
         const sane = satsInputSanitizer(value);
         setLocalSats(sane);
-        setLocalFiat(satsToUsd(state.price, Number(sane) || 0, false));
+        setLocalFiat(satsToFiat(state.price, Number(sane) || 0, state.fiat));
     }
 
+    /** This behaves the same as handleCharacterInput but allows for the keyboard to be used instead of the virtual keypad
+     *
+     *  if state.fiat.value === "BTC"
+     *  tracking e.data is required as the string is not created from just normal sequencing numbers
+     *  input - 12345
+     *  result - 0.00012345
+     *
+     *  if state.fiat.value !== "BTC"
+     *  Otherwise we need to account for the user inputting decimals
+     *  input - 123,45
+     *  result - 123.45
+     */
+
     function handleFiatInput(e: InputEvent) {
-        const { value } = e.target as HTMLInputElement;
-        const sane = fiatInputSanitizer(value);
+        const { value } = e.currentTarget as HTMLInputElement;
+        let sane;
+
+        if (state.fiat.value === "BTC") {
+            if (e.data !== null) {
+                sane = fiatInputSanitizer(
+                    Number(localFiat()).toFixed(8) + e.data,
+                    state.fiat.maxFractionalDigits
+                );
+            } else {
+                sane = fiatInputSanitizer(
+                    // This allows us to handle the backspace key and fight float rounding
+                    btcFloatRounding(localFiat()),
+                    state.fiat.maxFractionalDigits
+                );
+            }
+        } else {
+            console.log("we're in the fiat branch");
+            sane = fiatInputSanitizer(
+                value.replace(",", "."),
+                state.fiat.maxFractionalDigits
+            );
+        }
         setLocalFiat(sane);
         setLocalSats(
-            usdToSats(state.price, parseFloat(sane || "0") || 0, false)
+            fiatToSats(state.price, parseFloat(sane || "0") || 0, false)
         );
     }
 
-    function toggle() {
-        setMode((m) => (m === "sats" ? "fiat" : "sats"));
-        focus();
+    function toggle(disabled: boolean) {
+        if (!disabled) {
+            setMode((m) => (m === "sats" ? "fiat" : "sats"));
+        }
     }
 
     onMount(() => {
@@ -409,7 +116,7 @@ export const AmountEditable: ParentComponent<{
 
     function focus() {
         // Make sure we actually have the inputs mounted before we try to focus them
-        if (isOpen() && satsInputRef && fiatInputRef) {
+        if (satsInputRef && fiatInputRef && !props.frozenAmount) {
             if (mode() === "sats") {
                 satsInputRef.focus();
             } else {
@@ -418,175 +125,116 @@ export const AmountEditable: ParentComponent<{
         }
     }
 
-    // If the user is trying to send the max amount we want to show max minus fee
-    // Otherwise we just the actual amount they've entered
-    const maxOrLocalSats = () => {
-        if (
-            props.maxAmountSats &&
-            props.fee &&
-            props.maxAmountSats === BigInt(localSats())
-        ) {
-            return (
-                Number(props.maxAmountSats) - Number(props.fee)
-            ).toLocaleString();
+    let divRef: HTMLDivElement;
+
+    const [focusState, setFocusState] = createSignal<"focused" | "unfocused">(
+        "focused"
+    );
+
+    const handleMouseDown = (e: MouseEvent) => {
+        e.preventDefault();
+        // If it was already active, we'll need to toggle
+        if (focusState() === "unfocused") {
+            focus();
+            setFocusState("focused");
         } else {
-            return localSats();
+            toggle(state.price === 0);
+            focus();
         }
     };
 
-    return (
-        <Dialog.Root open={isOpen()}>
-            <button
-                onClick={() => setIsOpen(true)}
-                class="flex items-center gap-2 rounded-xl border-2 border-m-blue px-4 py-2"
-            >
-                <Show
-                    when={localSats() !== "0"}
-                    fallback={
-                        <div class="inline-block font-semibold">
-                            {i18n.t("receive.amount_editable.set_amount")}
-                        </div>
-                    }
-                >
-                    <InlineAmount amount={maxOrLocalSats()} />
-                </Show>
-                <img src={pencil} alt="Edit" />
-                {/* {props.children} */}
-            </button>
-            <Dialog.Portal>
-                {/* <Dialog.Overlay class={OVERLAY} /> */}
-                <div class={DIALOG_POSITIONER}>
-                    <Dialog.Content
-                        class={DIALOG_CONTENT}
-                        onEscapeKeyDown={handleClose}
-                    >
-                        {/* TODO: figure out how to submit on enter */}
-                        <div class="flex w-full justify-end">
-                            <button
-                                onClick={handleClose}
-                                class="h-8 w-8 rounded-lg hover:bg-white/10 active:bg-m-blue"
-                            >
-                                <img src={close} alt="Close" />
-                            </button>
-                        </div>
-                        {/* <form onSubmit={handleSubmit} class="text-black"> */}
-                        <form
-                            onSubmit={handleSubmit}
-                            class="absolute -z-10 opacity-0"
-                        >
-                            <input
-                                ref={(el) => (satsInputRef = el)}
-                                disabled={mode() === "fiat"}
-                                type="text"
-                                value={localSats()}
-                                onInput={handleSatsInput}
-                                inputMode="none"
-                            />
-                            <input
-                                ref={(el) => (fiatInputRef = el)}
-                                disabled={mode() === "sats"}
-                                type="text"
-                                value={localFiat()}
-                                onInput={handleFiatInput}
-                                inputMode="none"
-                            />
-                        </form>
+    const handleClickOutside = (e: MouseEvent) => {
+        if (e.target instanceof Element && !divRef.contains(e.target)) {
+            setFocusState("unfocused");
+        }
+    };
 
-                        <div class="mx-auto flex w-full max-w-[400px] flex-1 flex-col justify-around gap-2">
-                            <div class="flex justify-center">
-                                <div
-                                    class="flex w-max flex-col items-center justify-center gap-4 p-4"
-                                    onClick={toggle}
-                                >
-                                    <BigScalingText
-                                        text={
-                                            mode() === "fiat"
-                                                ? displayFiat()
-                                                : displaySats()
-                                        }
-                                        fiat={mode() === "fiat"}
-                                    />
-                                    <SmallSubtleAmount
-                                        text={
-                                            mode() !== "fiat"
-                                                ? displayFiat()
-                                                : displaySats()
-                                        }
-                                        fiat={mode() !== "fiat"}
-                                    />
-                                </div>
-                            </div>
-                            <Switch>
-                                <Match when={betaWarning()}>
-                                    <InfoBox accent="red">
-                                        {betaWarning()}
-                                    </InfoBox>
-                                </Match>
-                                <Match
-                                    when={warningText() && !props.skipWarnings}
-                                >
-                                    <InfoBox accent="blue">
-                                        {warningText()} <FeesModal />
-                                    </InfoBox>
-                                </Match>
-                            </Switch>
-                            <div class="my-2 flex justify-center gap-4">
-                                <For
-                                    each={
-                                        mode() === "fiat"
-                                            ? FIXED_AMOUNTS_USD
-                                            : FIXED_AMOUNTS_SATS
-                                    }
-                                >
-                                    {(amount) => (
-                                        <button
-                                            onClick={() => {
-                                                setFixedAmount(amount.amount);
-                                                focus();
-                                            }}
-                                            class="rounded-lg bg-white/10 px-4 py-2"
-                                        >
-                                            {amount.label}
-                                        </button>
-                                    )}
-                                </For>
-                                <Show when={props.maxAmountSats}>
-                                    <button
-                                        onClick={() => {
-                                            setFixedAmount(
-                                                props.maxAmountSats!.toString()
-                                            );
-                                            focus();
-                                        }}
-                                        class="rounded-lg bg-white/10 px-4 py-2"
-                                    >
-                                        {i18n.t("receive.amount_editable.max")}
-                                    </button>
-                                </Show>
-                            </div>
-                            <div class="grid w-full flex-none grid-cols-3">
-                                <For each={CHARACTERS}>
-                                    {(character) => (
-                                        <SingleDigitButton
-                                            fiat={mode() === "fiat"}
-                                            character={character}
-                                            onClick={handleCharacterInput}
-                                            onClear={handleClear}
-                                        />
-                                    )}
-                                </For>
-                            </div>
-                            <VStack>
-                                <Button intent="green" onClick={handleSubmit}>
-                                    {i18n.t(
-                                        "receive.amount_editable.set_amount"
-                                    )}
-                                </Button>
-                            </VStack>
-                        </div>
-                    </Dialog.Content>
-                </div>
-            </Dialog.Portal>
-        </Dialog.Root>
+    // When the keyboard on mobile is shown / hidden we should update our "focus" state
+    // TODO: find a way so this doesn't fire on devices without a virtual keyboard
+    function handleResize(e: Event) {
+        const VIEWPORT_VS_CLIENT_HEIGHT_RATIO = 0.75;
+
+        const target = e.target as VisualViewport;
+
+        if (
+            (target.height * target.scale) / window.screen.height <
+            VIEWPORT_VS_CLIENT_HEIGHT_RATIO
+        ) {
+            console.log("keyboard is shown");
+            setFocusState("focused");
+        } else {
+            console.log("keyboard is hidden");
+            setFocusState("unfocused");
+        }
+    }
+
+    onMount(() => {
+        document.body.addEventListener("click", handleClickOutside);
+        if ("visualViewport" in window) {
+            window?.visualViewport?.addEventListener("resize", handleResize);
+        }
+    });
+
+    onCleanup(() => {
+        document.body.removeEventListener("click", handleClickOutside);
+        if ("visualViewport" in window) {
+            window?.visualViewport?.removeEventListener("resize", handleResize);
+        }
+    });
+
+    return (
+        <div class="mx-auto flex w-full max-w-[400px] flex-col items-center">
+            <div ref={(el) => (divRef = el)} onMouseDown={handleMouseDown}>
+                <form
+                    class="absolute -z-10 opacity-0"
+                    onSubmit={(e) => {
+                        e.preventDefault();
+                        props.onSubmit
+                            ? props.onSubmit()
+                            : setFocusState("unfocused");
+                    }}
+                >
+                    <input type="submit" style={{ display: "none" }} />
+                    <input
+                        id="sats-input"
+                        ref={(el) => (satsInputRef = el)}
+                        disabled={mode() === "fiat" || props.frozenAmount}
+                        autofocus={mode() === "sats"}
+                        type="text"
+                        value={localSats()}
+                        onInput={handleSatsInput}
+                        inputMode={"decimal"}
+                        autocomplete="off"
+                    />
+                    <input
+                        id="fiat-input"
+                        ref={(el) => (fiatInputRef = el)}
+                        disabled={mode() === "sats" || props.frozenAmount}
+                        autofocus={mode() === "fiat"}
+                        type="text"
+                        value={localFiat()}
+                        onInput={handleFiatInput}
+                        inputMode={"decimal"}
+                        autocomplete="off"
+                    />
+                </form>
+                <BigMoney
+                    mode={mode()}
+                    displayFiat={displayFiat()}
+                    displaySats={displaySats()}
+                    onToggle={() => toggle(state.price === 0)}
+                    inputFocused={
+                        focusState() === "focused" && !props.frozenAmount
+                    }
+                    onFocus={() => focus()}
+                />
+            </div>
+            <Show when={props.maxAmountSats}>
+                <p class="flex gap-2 px-4 py-2 text-sm font-light text-m-grey-400 md:text-base">
+                    {`${i18n.t("receive.amount_editable.balance")} `}
+                    <AmountSmall amountSats={props.maxAmountSats!} />
+                </p>
+            </Show>
+        </div>
     );
 };

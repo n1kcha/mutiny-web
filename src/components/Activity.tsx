@@ -1,4 +1,5 @@
-import { Contact } from "@mutinywallet/mutiny-wasm";
+import { TagItem } from "@mutinywallet/mutiny-wasm";
+import { A } from "@solidjs/router";
 import {
     createEffect,
     createResource,
@@ -8,11 +9,10 @@ import {
     Show,
     Switch
 } from "solid-js";
-import { A } from "solid-start";
 
 import {
+    ActivityDetailsModal,
     ActivityItem,
-    DetailsIdModal,
     HackActivityType,
     LoadingShimmer,
     NiceP
@@ -21,22 +21,13 @@ import { useI18n } from "~/i18n/context";
 import { useMegaStore } from "~/state/megaStore";
 import { createDeepSignal } from "~/utils";
 
-export const THREE_COLUMNS =
-    "grid grid-cols-[auto,1fr,auto] gap-4 py-2 px-2 border-b border-neutral-800 last:border-b-0";
-export const CENTER_COLUMN = "min-w-0 overflow-hidden max-w-full";
-export const MISSING_LABEL =
-    "py-1 px-2 bg-white/10 rounded inline-block text-sm";
-export const REDSHIFT_LABEL =
-    "py-1 px-2 bg-white text-m-red rounded inline-block text-sm";
-export const RIGHT_COLUMN = "flex flex-col items-right text-right max-w-[8rem]";
-
 interface IActivityItem {
     kind: HackActivityType;
     id: string;
     amount_sats: number;
     inbound: boolean;
     labels: string[];
-    contacts: Contact[];
+    contacts: TagItem[];
     last_updated: number;
 }
 
@@ -50,7 +41,6 @@ function UnifiedActivityItem(props: {
             props.item.kind as unknown as HackActivityType
         );
     };
-
     return (
         <ActivityItem
             // This is actually the ActivityType enum but wasm is hard
@@ -77,7 +67,6 @@ export function CombinedActivity(props: { limit?: number }) {
     function openDetailsModal(id: string, kind: HackActivityType) {
         console.log("Opening details modal: ", id, kind);
 
-        // Some old channels don't have a channel id in the activity list
         if (!id) {
             console.warn("No id provided to openDetailsModal");
             return;
@@ -109,7 +98,7 @@ export function CombinedActivity(props: { limit?: number }) {
             fallback={<LoadingShimmer />}
         >
             <Show when={detailsId() && detailsKind()}>
-                <DetailsIdModal
+                <ActivityDetailsModal
                     open={detailsOpen()}
                     kind={detailsKind()}
                     id={detailsId()}
@@ -149,7 +138,8 @@ export function CombinedActivity(props: { limit?: number }) {
                     </For>
                 </Match>
             </Switch>
-            <Show when={props.limit && activity.latest.length > 0}>
+            {/* Only show on the home screen */}
+            <Show when={props.limit}>
                 <A
                     href="/activity"
                     class="self-center font-semibold text-m-red no-underline active:text-m-red/80"

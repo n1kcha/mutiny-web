@@ -1,6 +1,6 @@
 import { createForm, required } from "@modular-forms/solid";
 import { MutinyChannel, MutinyPeer } from "@mutinywallet/mutiny-wasm";
-import { ExternalLink } from "@mutinywallet/ui";
+import { useNavigate } from "@solidjs/router";
 import {
     createMemo,
     createResource,
@@ -10,19 +10,22 @@ import {
     Show,
     Switch
 } from "solid-js";
-import { useNavigate } from "solid-start";
 
 import {
-    AmountCard,
+    ActivityDetailsModal,
+    AmountEditable,
     AmountFiat,
     BackLink,
     Button,
     Card,
     DefaultMain,
+    FeeDisplay,
+    HackActivityType,
     InfoBox,
     LargeHeader,
     MegaCheck,
     MegaEx,
+    MethodChooser,
     MutinyWalletGuard,
     NavBar,
     SafeArea,
@@ -33,9 +36,9 @@ import {
 } from "~/components";
 import { useI18n } from "~/i18n/context";
 import { Network } from "~/logic/mutinyWalletSetup";
-import { MethodChooser, SendSource } from "~/routes/Send";
+import { SendSource } from "~/routes/Send";
 import { useMegaStore } from "~/state/megaStore";
-import { eify, mempoolTxUrl } from "~/utils";
+import { eify, vibrateSuccess } from "~/utils";
 
 const CHANNEL_FEE_ESTIMATE_ADDRESS =
     "bc1qf7546vg73ddsjznzq57z3e8jdn6gtw6au576j07kt6d9j7nz8mzsyn6lgf";
@@ -49,7 +52,7 @@ type ChannelOpenDetails = {
     failure_reason?: Error;
 };
 
-export default function Swap() {
+export function Swap() {
     const [state, _actions] = useMegaStore();
     const navigate = useNavigate();
     const i18n = useI18n();
@@ -62,8 +65,31 @@ export default function Swap() {
 
     const [selectedPeer, setSelectedPeer] = createSignal<string>("");
 
+    // Details Modal
+    const [detailsOpen, setDetailsOpen] = createSignal(false);
+    const [detailsKind, setDetailsKind] = createSignal<HackActivityType>();
+    const [detailsId, setDetailsId] = createSignal("");
+
     const [channelOpenResult, setChannelOpenResult] =
         createSignal<ChannelOpenDetails>();
+
+    function openDetailsModal() {
+        const paymentTxId =
+            channelOpenResult()?.channel?.outpoint?.split(":")[0];
+        const kind: HackActivityType = "ChannelOpen";
+
+        console.log("Opening details modal: ", paymentTxId, kind);
+
+        if (!paymentTxId) {
+            console.warn("No id provided to openDetailsModal");
+            return;
+        }
+        if (paymentTxId !== undefined) {
+            setDetailsId(paymentTxId);
+        }
+        setDetailsKind(kind);
+        setDetailsOpen(true);
+    }
 
     function resetState() {
         setSource("onchain");
@@ -92,13 +118,8 @@ export default function Swap() {
         setIsConnecting(true);
         try {
             const peerConnectString = values.peer.trim();
-            const nodes = await state.mutiny_wallet?.list_nodes();
-            const firstNode = (nodes[0] as string) || "";
 
-            await state.mutiny_wallet?.connect_to_peer(
-                firstNode,
-                peerConnectString
-            );
+            await state.mutiny_wallet?.connect_to_peer(peerConnectString);
 
             await refetch();
 
@@ -132,8 +153,6 @@ export default function Swap() {
         if (canSwap()) {
             try {
                 setLoading(true);
-                const nodes = await state.mutiny_wallet?.list_nodes();
-                const firstNode = (nodes[0] as string) || "";
 
                 let peer = undefined;
 
@@ -143,21 +162,19 @@ export default function Swap() {
 
                 if (isMax()) {
                     const new_channel =
-                        await state.mutiny_wallet?.sweep_all_to_channel(
-                            firstNode,
-                            peer
-                        );
+                        await state.mutiny_wallet?.sweep_all_to_channel(peer);
 
                     setChannelOpenResult({ channel: new_channel });
                 } else {
                     const new_channel = await state.mutiny_wallet?.open_channel(
-                        firstNode,
                         peer,
                         amountSats()
                     );
 
                     setChannelOpenResult({ channel: new_channel });
                 }
+
+                await vibrateSuccess();
             } catch (e) {
                 setChannelOpenResult({ failure_reason: eify(e) });
             } finally {
@@ -175,7 +192,7 @@ export default function Swap() {
         if (network === "bitcoin") {
             return (
                 (!!selectedPeer() || !!hasLsp()) &&
-                amountSats() >= 50000n &&
+                amountSats() >= 100000n &&
                 amountSats() <= balance
             );
         } else {
@@ -194,8 +211,8 @@ export default function Swap() {
 
         const network = state.mutiny_wallet?.get_network() as Network;
 
-        if (network === "bitcoin" && amountSats() < 50000n) {
-            return i18n.t("swap.channel_too_small", { amount: "50,000" });
+        if (network === "bitcoin" && amountSats() < 100000n) {
+            return i18n.t("swap.channel_too_small", { amount: "100,000" });
         }
 
         if (amountSats() < 10000n) {
@@ -256,8 +273,6 @@ export default function Swap() {
         return undefined;
     });
 
-    const network = state.mutiny_wallet?.get_network() as Network;
-
     return (
         <MutinyWalletGuard>
             <SafeArea>
@@ -291,6 +306,14 @@ export default function Swap() {
                                 {/*TODO: Error hint needs to be added for possible failure reasons*/}
                             </Match>
                             <Match when={channelOpenResult()?.channel}>
+                                <Show when={detailsId() && detailsKind()}>
+                                    <ActivityDetailsModal
+                                        open={detailsOpen()}
+                                        kind={detailsKind()}
+                                        id={detailsId()}
+                                        setOpen={setDetailsOpen}
+                                    />
+                                </Show>
                                 <MegaCheck />
                                 <div class="flex flex-col justify-center">
                                     <h1 class="mb-2 mt-4 w-full justify-center text-center text-2xl font-semibold md:text-3xl">
@@ -326,22 +349,12 @@ export default function Swap() {
                                     </div>
                                 </div>
                                 <hr class="w-16 bg-m-grey-400" />
-                                <Show
-                                    when={
-                                        channelOpenResult()?.channel?.outpoint
-                                    }
+                                <p
+                                    class="cursor-pointer underline"
+                                    onClick={openDetailsModal}
                                 >
-                                    <ExternalLink
-                                        href={mempoolTxUrl(
-                                            channelOpenResult()?.channel?.outpoint?.split(
-                                                ":"
-                                            )[0],
-                                            network
-                                        )}
-                                    >
-                                        {i18n.t("common.view_transaction")}
-                                    </ExternalLink>
-                                </Show>
+                                    {i18n.t("common.view_payment_details")}
+                                </p>
                                 {/* <pre>{JSON.stringify(channelOpenResult()?.channel?.value, null, 2)}</pre> */}
                             </Match>
                         </Switch>
@@ -430,14 +443,19 @@ export default function Swap() {
                                 </Card>
                             </Show>
                         </VStack>
-                        <AmountCard
-                            amountSats={amountSats().toString()}
+                        <AmountEditable
+                            initialAmountSats={amountSats()}
                             setAmountSats={setAmountSats}
                             fee={feeEstimate()?.toString()}
-                            isAmountEditable={true}
-                            skipWarnings={true}
                             maxAmountSats={maxOnchain()}
                         />
+                        <Show when={feeEstimate() && amountSats() > 0n}>
+                            <FeeDisplay
+                                amountSats={amountSats().toString()}
+                                fee={feeEstimate()!.toString()}
+                                maxAmountSats={maxOnchain()}
+                            />
+                        </Show>
                         <Show when={amountWarning() && amountSats() > 0n}>
                             <InfoBox accent={"red"}>{amountWarning()}</InfoBox>
                         </Show>

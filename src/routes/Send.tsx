@@ -1,54 +1,52 @@
-import { Clipboard } from "@capacitor/clipboard";
-import { Capacitor } from "@capacitor/core";
-import { Contact, MutinyInvoice } from "@mutinywallet/mutiny-wasm";
-import { ExternalLink } from "@mutinywallet/ui";
+import { MutinyInvoice } from "@mutinywallet/mutiny-wasm";
+import { A, useNavigate, useSearchParams } from "@solidjs/router";
 import {
     createEffect,
     createMemo,
+    createResource,
     createSignal,
+    JSX,
     Match,
     onMount,
     Show,
+    Suspense,
     Switch
 } from "solid-js";
-import { useNavigate } from "solid-start";
 
-import { Paste } from "~/assets/svg/Paste";
-import { Scan } from "~/assets/svg/Scan";
+import bolt from "~/assets/icons/bolt.svg";
+import chain from "~/assets/icons/chain.svg";
+import close from "~/assets/icons/close.svg";
 import {
-    AmountCard,
+    ActivityDetailsModal,
+    AmountEditable,
     AmountFiat,
     AmountSats,
-    BackButton,
-    BackLink,
+    BackPop,
     Button,
-    ButtonLink,
-    Card,
     DefaultMain,
     Fee,
-    HStack,
+    FeeDisplay,
+    HackActivityType,
     InfoBox,
-    LargeHeader,
+    LabelCircle,
+    LoadingShimmer,
     MegaCheck,
+    MegaClock,
     MegaEx,
     MutinyWalletGuard,
     NavBar,
-    SafeArea,
     showToast,
+    SimpleInput,
     SmallHeader,
     StringShower,
-    StyledRadioGroup,
     SuccessModal,
-    TagEditor,
+    UnstyledBackPop,
     VStack
 } from "~/components";
 import { useI18n } from "~/i18n/context";
-import { Network } from "~/logic/mutinyWalletSetup";
-import { ParsedParams, toParsedParams } from "~/logic/waila";
+import { ParsedParams } from "~/logic/waila";
 import { useMegaStore } from "~/state/megaStore";
-import { eify, mempoolTxUrl, MutinyTagItem } from "~/utils";
-
-import { FeedbackLink } from "./Feedback";
+import { eify, vibrateSuccess } from "~/utils";
 
 export type SendSource = "lightning" | "onchain";
 
@@ -60,116 +58,10 @@ type SentDetails = {
     amount?: bigint;
     destination?: string;
     txid?: string;
+    payment_hash?: string;
     failure_reason?: string;
     fee_estimate?: bigint | number;
 };
-
-export function MethodChooser(props: {
-    source: SendSource;
-    setSource: (source: string) => void;
-    both?: boolean;
-}) {
-    const [store, _actions] = useMegaStore();
-
-    const methods = createMemo(() => {
-        const lnBalance = store.balance?.lightning || 0n;
-        const onchainBalance =
-            (store.balance?.confirmed || 0n) +
-            (store.balance?.unconfirmed || 0n);
-        return [
-            {
-                value: "lightning",
-                label: "Lightning Balance",
-                caption:
-                    lnBalance > 0n
-                        ? `${lnBalance.toLocaleString()} SATS`
-                        : "No balance",
-                disabled: lnBalance === 0n
-            },
-            {
-                value: "onchain",
-                label: "On-chain Balance",
-                caption:
-                    onchainBalance > 0n
-                        ? `${onchainBalance.toLocaleString()} SATS`
-                        : "No balance",
-                disabled: onchainBalance === 0n
-            }
-        ];
-    });
-    return (
-        <Switch>
-            <Match when={props.both}>
-                <StyledRadioGroup
-                    accent="white"
-                    value={props.source}
-                    onValueChange={props.setSource}
-                    choices={methods()}
-                />
-            </Match>
-            <Match when={props.source === "lightning"}>
-                <StyledRadioGroup
-                    accent="white"
-                    value={props.source}
-                    onValueChange={props.setSource}
-                    choices={[methods()[0]]}
-                />
-            </Match>
-            <Match when={props.source === "onchain"}>
-                <StyledRadioGroup
-                    accent="white"
-                    value={props.source}
-                    onValueChange={props.setSource}
-                    choices={[methods()[1]]}
-                />
-            </Match>
-        </Switch>
-    );
-}
-
-function DestinationInput(props: {
-    fieldDestination: string;
-    setFieldDestination: (destination: string) => void;
-    handleDecode: () => void;
-    handlePaste: () => void;
-}) {
-    const i18n = useI18n();
-    return (
-        <VStack>
-            <SmallHeader>{i18n.t("send.destination")}</SmallHeader>
-            <textarea
-                value={props.fieldDestination}
-                onInput={(e) => {
-                    const trim = e.currentTarget.value.trim();
-                    props.setFieldDestination(trim);
-                }}
-                placeholder="bitcoin:..."
-                class="rounded-lg bg-white/10 p-2 placeholder-neutral-400"
-            />
-            <Button
-                disabled={!props.fieldDestination}
-                intent="blue"
-                onClick={props.handleDecode}
-            >
-                {i18n.t("common.continue")}
-            </Button>
-            <HStack>
-                <Button onClick={props.handlePaste}>
-                    <div class="flex flex-col items-center gap-2">
-                        <Paste />
-                        <span>{i18n.t("send.paste")}</span>
-                    </div>
-                </Button>
-                <ButtonLink href="/scanner">
-                    <div class="flex flex-col items-center gap-2">
-                        <Scan />
-                        <span>{i18n.t("send.scan_qr")}</span>
-                    </div>
-                </ButtonLink>
-            </HStack>
-        </VStack>
-    );
-}
 
 function DestinationShower(props: {
     source: SendSource;
@@ -178,71 +70,257 @@ function DestinationShower(props: {
     invoice?: MutinyInvoice;
     nodePubkey?: string;
     lnurl?: string;
-    clearAll: () => void;
+    lightning_address?: string;
+    contact_id?: string;
 }) {
+    const [state, _actions] = useMegaStore();
+
+    async function getContact(id: string) {
+        console.log("fetching contact", id);
+        try {
+            const contact = state.mutiny_wallet?.get_tag_item(id);
+            console.log("fetching contact", contact);
+            // This shouldn't happen
+            if (!contact) throw new Error("Contact not found");
+            return contact;
+        } catch (e) {
+            console.error(e);
+            showToast(eify(e));
+        }
+    }
+
+    const [contact] = createResource(() => props.contact_id, getContact);
+
     return (
         <Switch>
+            <Match when={contact.latest}>
+                <DestinationItem
+                    title={contact()?.name || ""}
+                    value={contact()?.ln_address}
+                    icon={
+                        <LabelCircle
+                            name={contact()?.name || ""}
+                            image_url={contact()?.image_url}
+                            contact
+                            label={false}
+                        />
+                    }
+                />
+            </Match>
             <Match when={props.address && props.source === "onchain"}>
-                <StringShower text={props.address || ""} />
+                <DestinationItem
+                    title="On-chain"
+                    value={<StringShower text={props.address || ""} />}
+                    icon={
+                        <img
+                            class="h-[1rem] w-[1rem]"
+                            src={chain}
+                            alt="blockchain"
+                        />
+                    }
+                />
             </Match>
             <Match when={props.invoice && props.source === "lightning"}>
-                <StringShower text={props.invoice?.bolt11 || ""} />
+                <DestinationItem
+                    title="Lightning"
+                    value={<StringShower text={props.invoice?.bolt11 || ""} />}
+                    icon={
+                        <img
+                            class="h-[1rem] w-[1rem]"
+                            src={bolt}
+                            alt="lightning"
+                        />
+                    }
+                />
+            </Match>
+            <Match
+                when={props.lightning_address && props.source === "lightning"}
+            >
+                <DestinationItem
+                    title="Lightning"
+                    value={props.lightning_address || ""}
+                    icon={
+                        <img
+                            class="h-[1rem] w-[1rem]"
+                            src={bolt}
+                            alt="lightning"
+                        />
+                    }
+                />
             </Match>
             <Match when={props.nodePubkey && props.source === "lightning"}>
-                <StringShower text={props.nodePubkey || ""} />
+                <DestinationItem
+                    title="Lightning"
+                    value={<StringShower text={props.nodePubkey || ""} />}
+                    icon={
+                        <img
+                            class="h-[1rem] w-[1rem]"
+                            src={bolt}
+                            alt="lightning"
+                        />
+                    }
+                />
             </Match>
-            <Match when={props.lnurl && props.source === "lightning"}>
-                <StringShower text={props.lnurl || ""} />
+            <Match
+                when={
+                    props.lnurl &&
+                    !props.lightning_address &&
+                    props.source === "lightning"
+                }
+            >
+                <DestinationItem
+                    title="Lightning"
+                    value={<StringShower text={props.lnurl || ""} />}
+                    icon={
+                        <img
+                            class="h-[1rem] w-[1rem]"
+                            src={bolt}
+                            alt="lightning"
+                        />
+                    }
+                />
             </Match>
         </Switch>
     );
 }
 
-export default function Send() {
-    const [state, actions] = useMegaStore();
-    const navigate = useNavigate();
+function DestinationItem(props: {
+    title: string;
+    value: JSX.Element;
+    icon: JSX.Element;
+}) {
+    return (
+        <div class="grid grid-cols-[auto_minmax(0,_1fr)_minmax(0,_max-content)] items-center gap-2 rounded-xl bg-neutral-800 p-2">
+            {props.icon}
+            <div class="flex flex-col gap-1">
+                <SmallHeader>{props.title}</SmallHeader>
+                <div class="text-sm text-neutral-500">{props.value}</div>
+            </div>
+            <UnstyledBackPop>
+                <div class="h-8 w-8 rounded-full bg-m-grey-800 px-1 py-1">
+                    <img src={close} alt="Clear" class="h-6 w-6" />
+                </div>
+            </UnstyledBackPop>
+        </div>
+    );
+}
+
+function Failure(props: { reason: string }) {
     const i18n = useI18n();
 
-    // These can only be set by the user
-    const [fieldDestination, setFieldDestination] = createSignal("");
-    const [destination, setDestination] = createSignal<ParsedParams>();
+    return (
+        <Switch>
+            <Match when={props.reason === "Payment timed out."}>
+                <MegaClock />
+                <h1 class="mb-2 mt-4 w-full text-center text-2xl font-semibold md:text-3xl">
+                    {i18n.t("send.payment_pending")}
+                </h1>
+                <InfoBox accent="white">
+                    {i18n.t("send.payment_pending_description")}
+                </InfoBox>
+            </Match>
+            <Match
+                when={props.reason === "Channel reserve amount is too high."}
+            >
+                <MegaEx />
+                <h1 class="mb-2 mt-4 w-full text-center text-2xl font-semibold md:text-3xl">
+                    {i18n.t("send.error_channel_reserves")}
+                </h1>
+                <InfoBox accent="white">
+                    {i18n.t("send.error_channel_reserves_explained")}{" "}
+                    <A href="/settings/channels">{i18n.t("common.why")}</A>
+                </InfoBox>
+            </Match>
+            <Match when={true}>
+                <MegaEx />
+                <h1 class="mb-2 mt-4 w-full text-center text-2xl font-semibold md:text-3xl">
+                    {props.reason}
+                </h1>
+            </Match>
+        </Switch>
+    );
+}
 
-    // These can be derived from the "destination" signal or set by the user
+export function Send() {
+    const [state, actions] = useMegaStore();
+    const navigate = useNavigate();
+    const [params, setParams] = useSearchParams();
+    const i18n = useI18n();
+
+    const [amountInput, setAmountInput] = createSignal("");
+    const [whatForInput, setWhatForInput] = createSignal("");
+
+    // These can be derived from the destination or set by the user
     const [amountSats, setAmountSats] = createSignal(0n);
+
+    // These are derived from the incoming destination
     const [isAmtEditable, setIsAmtEditable] = createSignal(true);
     const [source, setSource] = createSignal<SendSource>("lightning");
-
-    // These can only be derived from the "destination" signal
     const [invoice, setInvoice] = createSignal<MutinyInvoice>();
     const [nodePubkey, setNodePubkey] = createSignal<string>();
     const [lnurlp, setLnurlp] = createSignal<string>();
+    const [lnAddress, setLnAddress] = createSignal<string>();
     const [address, setAddress] = createSignal<string>();
     const [description, setDescription] = createSignal<string>();
+    const [contactId, setContactId] = createSignal<string>();
+    const [isHodlInvoice, setIsHodlInvoice] = createSignal<boolean>(false);
 
     // Is sending / sent
     const [sending, setSending] = createSignal(false);
     const [sentDetails, setSentDetails] = createSignal<SentDetails>();
 
-    // Tagging stuff
-    const [selectedContacts, setSelectedContacts] = createSignal<
-        Partial<MutinyTagItem>[]
-    >([]);
+    // Details Modal
+    const [detailsOpen, setDetailsOpen] = createSignal(false);
+    const [detailsKind, setDetailsKind] = createSignal<HackActivityType>();
+    const [detailsId, setDetailsId] = createSignal("");
 
     // Errors
     const [error, setError] = createSignal<string>();
 
-    function clearAll() {
-        setDestination(undefined);
-        setAmountSats(0n);
-        setIsAmtEditable(true);
-        setSource("lightning");
-        setInvoice(undefined);
-        setAddress(undefined);
-        setDescription(undefined);
-        setNodePubkey(undefined);
-        setLnurlp(undefined);
-        setFieldDestination("");
+    function openDetailsModal() {
+        const paymentTxId = sentDetails()?.txid
+            ? sentDetails()
+                ? sentDetails()?.txid
+                : undefined
+            : sentDetails()
+            ? sentDetails()?.payment_hash
+            : undefined;
+        const kind = sentDetails()?.txid ? "OnChain" : "Lightning";
+
+        console.log("Opening details modal: ", paymentTxId, kind);
+
+        if (!paymentTxId) {
+            console.warn("No id provided to openDetailsModal");
+            return;
+        }
+        if (paymentTxId !== undefined) {
+            setDetailsId(paymentTxId);
+        }
+        setDetailsKind(kind);
+        setDetailsOpen(true);
     }
+
+    // TODO: can I dedupe this from the search page?
+    function parsePaste(text: string) {
+        actions.handleIncomingString(
+            text,
+            (error) => {
+                showToast(error);
+            },
+            (result) => {
+                actions.setScanResult(result);
+                navigate("/send", { state: { previous: "/search" } });
+            }
+        );
+    }
+
+    // send?invoice=... need to check for wallet because we can't parse until we have the wallet
+    createEffect(() => {
+        if (params.invoice && state.mutiny_wallet) {
+            parsePaste(params.invoice);
+            setParams({ invoice: undefined });
+        }
+    });
 
     const maxOnchain = createMemo(() => {
         return (
@@ -251,38 +329,65 @@ export default function Send() {
         );
     });
 
-    const isMax = () => {
+    const maxLightning = createMemo(() => {
+        const fed = state.balance?.federation ?? 0n;
+        const ln = state.balance?.lightning ?? 0n;
+        if (fed > ln) {
+            return fed;
+        } else {
+            return ln;
+        }
+    });
+
+    const maxAmountSats = createMemo(() => {
+        return source() === "onchain" ? maxOnchain() : maxLightning();
+    });
+
+    const isMax = createMemo(() => {
         if (source() === "onchain") {
             return amountSats() === maxOnchain();
         }
-    };
+    });
 
-    const insufficientFunds = () => {
-        if (source() === "onchain") {
-            return maxOnchain() < amountSats();
+    // Rerun every time the source or amount changes to check for amount errors
+    createEffect(() => {
+        setError(undefined);
+        // Don't recompute if sending
+        if (sending()) return;
+        if (source() === "onchain" && maxOnchain() < amountSats()) {
+            setError(i18n.t("send.error_low_balance"));
+            return;
         }
-        if (source() === "lightning") {
-            return (
-                (state.balance?.lightning ?? 0n) <= amountSats() &&
-                setError(i18n.t("send.error_low_balance"))
+        if (
+            source() === "lightning" &&
+            (state.balance?.lightning ?? 0n) <= amountSats() &&
+            (state.balance?.federation ?? 0n) <= amountSats()
+        ) {
+            setError(i18n.t("send.error_low_balance"));
+            return;
+        }
+        if (
+            source() === "lightning" &&
+            !!invoice()?.amount_sats &&
+            amountSats() !== invoice()?.amount_sats
+        ) {
+            setError(
+                i18n.t("send.error_invoice_match", {
+                    amount: invoice()?.amount_sats?.toLocaleString()
+                })
             );
+            return;
         }
-    };
+    });
 
-    const feeEstimate = () => {
-        if (source() === "lightning") {
-            setError(undefined);
-            return undefined;
-        }
-
+    // Rerun every time the amount changes if we're onchain
+    const feeEstimate = createMemo(() => {
         if (
             source() === "onchain" &&
             amountSats() &&
             amountSats() > 0n &&
             address()
         ) {
-            setError(undefined);
-
             try {
                 // If max we want to use the sweep fee estimator
                 if (isMax()) {
@@ -300,55 +405,29 @@ export default function Send() {
                 setError(eify(e).message);
             }
         }
-
         return undefined;
-    };
-
-    onMount(() => {
-        if (state.scan_result) {
-            setDestination(state.scan_result);
-            actions.setScanResult(undefined);
-        }
     });
 
-    // Rerun every time the destination changes
-    createEffect(() => {
-        const source = destination();
-        if (!source) return undefined;
+    const [parsingDestination, setParsingDestination] = createSignal(false);
+
+    function handleDestination(source: ParsedParams | undefined) {
+        if (!source) return;
+        setParsingDestination(true);
+
         try {
             if (source.address) setAddress(source.address);
             if (source.memo) setDescription(source.memo);
+            if (source.contact_id) setContactId(source.contact_id);
 
             if (source.invoice) {
-                state.mutiny_wallet
-                    ?.decode_invoice(source.invoice)
-                    .then((invoice) => {
-                        if (invoice?.amount_sats) {
-                            setAmountSats(invoice.amount_sats);
-                            setIsAmtEditable(false);
-                        }
-                        setInvoice(invoice);
-                        setSource("lightning");
-                    });
+                processInvoice(source as ParsedParams & { invoice: string });
             } else if (source.node_pubkey) {
-                setAmountSats(source.amount_sats || 0n);
-                setNodePubkey(source.node_pubkey);
-                setSource("lightning");
+                processNodePubkey(
+                    source as ParsedParams & { node_pubkey: string }
+                );
             } else if (source.lnurl) {
-                state.mutiny_wallet
-                    ?.decode_lnurl(source.lnurl)
-                    .then((lnurlParams) => {
-                        if (lnurlParams.tag === "payRequest") {
-                            if (lnurlParams.min == lnurlParams.max) {
-                                setAmountSats(lnurlParams.min / 1000n);
-                                setIsAmtEditable(false);
-                            } else {
-                                setAmountSats(source.amount_sats || 0n);
-                            }
-                            setLnurlp(source.lnurl);
-                            setSource("lightning");
-                        }
-                    });
+                console.log("processing lnurl");
+                processLnurl(source as ParsedParams & { lnurl: string });
             } else {
                 setAmountSats(source.amount_sats || 0n);
                 setSource("onchain");
@@ -357,101 +436,81 @@ export default function Send() {
             return source;
         } catch (e) {
             console.error("error", e);
-            clearAll();
+        } finally {
+            setParsingDestination(false);
         }
-    });
+    }
 
-    // Rerun every time the source changes
-    createEffect(() => {
-        if (source() === "lightning") {
-            setError(undefined);
-        }
-    });
-
-    function parsePaste(text: string) {
-        if (text) {
-            const network = state.mutiny_wallet?.get_network() || "signet";
-            const result = toParsedParams(text || "", network);
-            if (!result.ok) {
-                showToast(result.error);
-                return;
-            } else {
-                if (
-                    result.value?.address ||
-                    result.value?.invoice ||
-                    result.value?.node_pubkey ||
-                    result.value?.lnurl
-                ) {
-                    setDestination(result.value);
-                    // Important! we need to clear the scan result once we've used it
-                    actions.setScanResult(undefined);
+    // A ParsedParams with an invoice in it
+    function processInvoice(source: ParsedParams & { invoice: string }) {
+        state.mutiny_wallet
+            ?.decode_invoice(source.invoice!)
+            .then((invoice) => {
+                if (invoice?.amount_sats) {
+                    setAmountSats(invoice.amount_sats);
+                    setIsAmtEditable(false);
                 }
-            }
-        }
+                setInvoice(invoice);
+                setIsHodlInvoice(invoice.potential_hodl_invoice);
+                setSource("lightning");
+            })
+            .catch((e) => showToast(eify(e)));
     }
 
-    function handleDecode() {
-        const text = fieldDestination();
-        parsePaste(text);
+    // A ParsedParams with a node_pubkey in it
+    function processNodePubkey(source: ParsedParams & { node_pubkey: string }) {
+        setAmountSats(source.amount_sats || 0n);
+        setNodePubkey(source.node_pubkey);
+        setSource("lightning");
     }
 
-    async function handlePaste() {
-        try {
-            let text;
-
-            if (Capacitor.isNativePlatform()) {
-                const { value } = await Clipboard.read();
-                text = value;
-            } else {
-                if (!navigator.clipboard.readText) {
-                    return showToast(new Error(i18n.t("send.error_clipboard")));
-                }
-                text = await navigator.clipboard.readText();
-            }
-
-            const trimText = text.trim();
-            setFieldDestination(trimText);
-            parsePaste(trimText);
-        } catch (e) {
-            console.error(e);
-        }
-    }
-
-    async function processContacts(
-        contacts: Partial<MutinyTagItem>[]
-    ): Promise<string[]> {
-        if (contacts.length) {
-            const first = contacts![0];
-
-            if (!first.name) {
-                return [];
-            }
-
-            if (!first.id && first.name) {
-                const c = new Contact(
-                    first.name,
-                    undefined,
-                    undefined,
-                    undefined
-                );
-                try {
-                    const newContactId =
-                        await state.mutiny_wallet?.create_new_contact(c);
-                    if (newContactId) {
-                        return [newContactId];
+    // A ParsedParams with an lnurl in it
+    function processLnurl(source: ParsedParams & { lnurl: string }) {
+        state.mutiny_wallet
+            ?.decode_lnurl(source.lnurl)
+            .then((lnurlParams) => {
+                if (lnurlParams.tag === "payRequest") {
+                    if (lnurlParams.min == lnurlParams.max) {
+                        setAmountSats(lnurlParams.min / 1000n);
+                        setIsAmtEditable(false);
+                    } else {
+                        setAmountSats(source.amount_sats || 0n);
                     }
-                } catch (e) {
-                    console.error(e);
-                }
-            }
 
-            if (first.id) {
-                return [first.id];
+                    if (source.lightning_address) {
+                        setLnAddress(source.lightning_address);
+                        setIsHodlInvoice(
+                            source.lightning_address
+                                .toLowerCase()
+                                .includes("zeuspay.com")
+                        );
+                    }
+                    setLnurlp(source.lnurl);
+                    setSource("lightning");
+                }
+            })
+            .catch((e) => showToast(eify(e)));
+    }
+
+    createEffect(() => {
+        if (amountInput() === "") {
+            setAmountSats(0n);
+        } else {
+            const parsed = BigInt(amountInput());
+            console.log("parsed", parsed);
+            if (parsed > 0n) {
+                setAmountSats(parsed);
             }
         }
+    });
 
-        return [];
-    }
+    // If we got here from a scan or search
+    onMount(() => {
+        if (state.scan_result) {
+            handleDestination(state.scan_result);
+            actions.setScanResult(undefined);
+        }
+    });
 
     async function handleSend() {
         try {
@@ -459,37 +518,39 @@ export default function Send() {
             const bolt11 = invoice()?.bolt11;
             const sentDetails: Partial<SentDetails> = {};
 
-            const tags = await processContacts(selectedContacts());
+            const tags = contactId() ? [contactId()!] : [];
+
+            if (whatForInput()) {
+                tags.push(whatForInput().trim());
+            }
 
             if (source() === "lightning" && invoice() && bolt11) {
-                const nodes = await state.mutiny_wallet?.list_nodes();
-                const firstNode = (nodes[0] as string) || "";
                 sentDetails.destination = bolt11;
                 // If the invoice has sats use that, otherwise we pass the user-defined amount
                 if (invoice()?.amount_sats) {
-                    await state.mutiny_wallet?.pay_invoice(
-                        firstNode,
+                    const payment = await state.mutiny_wallet?.pay_invoice(
                         bolt11,
                         undefined,
                         tags
                     );
-                    sentDetails.amount = invoice()?.amount_sats;
+                    sentDetails.amount = payment?.amount_sats;
+                    sentDetails.payment_hash = payment?.payment_hash;
+                    sentDetails.fee_estimate = payment?.fees_paid || 0;
                 } else {
-                    await state.mutiny_wallet?.pay_invoice(
-                        firstNode,
+                    const payment = await state.mutiny_wallet?.pay_invoice(
                         bolt11,
                         amountSats(),
                         tags
                     );
-                    sentDetails.amount = amountSats();
+                    sentDetails.amount = payment?.amount_sats;
+                    sentDetails.payment_hash = payment?.payment_hash;
+                    sentDetails.fee_estimate = payment?.fees_paid || 0;
                 }
             } else if (source() === "lightning" && nodePubkey()) {
-                const nodes = await state.mutiny_wallet?.list_nodes();
-                const firstNode = (nodes[0] as string) || "";
                 const payment = await state.mutiny_wallet?.keysend(
-                    firstNode,
                     nodePubkey()!,
                     amountSats(),
+                    undefined, // todo add optional keysend message
                     tags
                 );
 
@@ -497,23 +558,26 @@ export default function Send() {
                 if (!payment?.paid) {
                     throw new Error(i18n.t("send.error_keysend"));
                 } else {
-                    sentDetails.amount = amountSats();
+                    sentDetails.amount = payment?.amount_sats;
+                    sentDetails.payment_hash = payment?.payment_hash;
+                    sentDetails.fee_estimate = payment?.fees_paid || 0;
                 }
             } else if (source() === "lightning" && lnurlp()) {
-                const nodes = await state.mutiny_wallet?.list_nodes();
-                const firstNode = (nodes[0] as string) || "";
                 const payment = await state.mutiny_wallet?.lnurl_pay(
-                    firstNode,
                     lnurlp()!,
                     amountSats(),
                     undefined, // zap_npub
-                    tags
+                    tags,
+                    undefined // comment
                 );
+                sentDetails.payment_hash = payment?.payment_hash;
 
                 if (!payment?.paid) {
                     throw new Error(i18n.t("send.error_LNURL"));
                 } else {
-                    sentDetails.amount = amountSats();
+                    sentDetails.amount = payment?.amount_sats;
+                    sentDetails.payment_hash = payment?.payment_hash;
+                    sentDetails.fee_estimate = payment?.fees_paid || 0;
                 }
             } else if (source() === "onchain" && address()) {
                 if (isMax()) {
@@ -541,8 +605,13 @@ export default function Send() {
                     sentDetails.fee_estimate = feeEstimate() ?? 0;
                 }
             }
-            setSentDetails(sentDetails as SentDetails);
-            clearAll();
+            if (sentDetails.payment_hash || sentDetails.txid) {
+                setSentDetails(sentDetails as SentDetails);
+                await vibrateSuccess();
+            } else {
+                // TODO: what should we do here? hopefully this never happens?
+                console.error("failed to send: no payment hash or txid");
+            }
         } catch (e) {
             const error = eify(e);
             setSentDetails({ failure_reason: error.message });
@@ -556,183 +625,172 @@ export default function Send() {
 
     const sendButtonDisabled = createMemo(() => {
         return (
-            !destination() ||
+            parsingDestination() ||
             sending() ||
             amountSats() === 0n ||
-            !!insufficientFunds() ||
             !!error()
         );
     });
 
-    const network = state.mutiny_wallet?.get_network() as Network;
-
-    const maxAmountSats = createMemo(() => {
-        return source() === "onchain" ? maxOnchain() : undefined;
-    });
-
     return (
         <MutinyWalletGuard>
-            <SafeArea>
-                <DefaultMain>
-                    <Show
-                        when={
-                            address() || invoice() || nodePubkey() || lnurlp()
-                        }
-                        fallback={<BackLink />}
-                    >
-                        <BackButton
-                            onClick={() => clearAll()}
-                            title={i18n.t("send.start_over")}
+            <DefaultMain>
+                <BackPop />
+                <SuccessModal
+                    confirmText={
+                        sentDetails()?.amount
+                            ? i18n.t("common.nice")
+                            : i18n.t("common.home")
+                    }
+                    open={!!sentDetails()}
+                    setOpen={(open: boolean) => {
+                        if (!open) setSentDetails(undefined);
+                    }}
+                    onConfirm={() => {
+                        setSentDetails(undefined);
+                        navigate("/");
+                    }}
+                >
+                    <Switch>
+                        <Match when={sentDetails()?.failure_reason}>
+                            <Failure
+                                reason={
+                                    sentDetails()?.failure_reason ||
+                                    "Payment failed for an unknown reason"
+                                }
+                            />
+                        </Match>
+                        <Match when={true}>
+                            <Show when={detailsId() && detailsKind()}>
+                                <ActivityDetailsModal
+                                    open={detailsOpen()}
+                                    kind={detailsKind()}
+                                    id={detailsId()}
+                                    setOpen={setDetailsOpen}
+                                />
+                            </Show>
+                            <MegaCheck />
+                            <h1 class="mb-2 mt-4 w-full text-center text-2xl font-semibold md:text-3xl">
+                                {sentDetails()?.amount
+                                    ? source() === "onchain"
+                                        ? i18n.t("send.payment_initiated")
+                                        : i18n.t("send.payment_sent")
+                                    : sentDetails()?.failure_reason}
+                            </h1>
+                            <div class="flex flex-col items-center gap-1">
+                                <div class="text-xl">
+                                    <AmountSats
+                                        amountSats={sentDetails()?.amount}
+                                        icon="minus"
+                                    />
+                                </div>
+                                <div class="text-white/70">
+                                    <AmountFiat
+                                        amountSats={sentDetails()?.amount}
+                                        denominationSize="sm"
+                                    />
+                                </div>
+                            </div>
+                            <hr class="w-16 bg-m-grey-400" />
+                            <Fee amountSats={sentDetails()?.fee_estimate} />
+                            <p
+                                class="cursor-pointer underline"
+                                onClick={openDetailsModal}
+                            >
+                                {i18n.t("common.view_payment_details")}
+                            </p>
+                        </Match>
+                    </Switch>
+                </SuccessModal>
+                <div class="flex flex-1 flex-col justify-between gap-2">
+                    <Suspense fallback={<LoadingShimmer />}>
+                        <DestinationShower
+                            source={source()}
+                            description={description()}
+                            invoice={invoice()}
+                            address={address()}
+                            nodePubkey={nodePubkey()}
+                            lnurl={lnurlp()}
+                            lightning_address={lnAddress()}
+                            contact_id={contactId()}
+                        />
+                    </Suspense>
+                    <div class="flex-1" />
+                    {/* Need both these versions so that we make sure to get the right initial amount on load */}
+                    <Show when={isAmtEditable()}>
+                        <AmountEditable
+                            initialAmountSats={amountSats()}
+                            setAmountSats={setAmountInput}
+                            maxAmountSats={maxAmountSats()}
+                            fee={feeEstimate()?.toString()}
+                            onSubmit={() =>
+                                sendButtonDisabled() ? undefined : handleSend()
+                            }
                         />
                     </Show>
-                    <LargeHeader>{i18n.t("send.send_bitcoin")}</LargeHeader>
-                    <SuccessModal
-                        confirmText={
-                            sentDetails()?.amount
-                                ? i18n.t("common.nice")
-                                : i18n.t("common.home")
-                        }
-                        open={!!sentDetails()}
-                        setOpen={(open: boolean) => {
-                            if (!open) setSentDetails(undefined);
-                        }}
-                        onConfirm={() => {
-                            setSentDetails(undefined);
-                            navigate("/");
-                        }}
-                    >
-                        <Switch>
-                            <Match when={sentDetails()?.failure_reason}>
-                                <MegaEx />
-                                <h1 class="mb-2 mt-4 w-full text-center text-2xl font-semibold md:text-3xl">
-                                    {sentDetails()?.amount
-                                        ? source() === "onchain"
-                                            ? i18n.t("send.payment_initiated")
-                                            : i18n.t("send.payment_sent")
-                                        : sentDetails()?.failure_reason}
-                                </h1>
-                                {/*TODO: add failure hint logic for different failure conditions*/}
-                            </Match>
-                            <Match when={true}>
-                                <MegaCheck />
-                                <h1 class="mb-2 mt-4 w-full text-center text-2xl font-semibold md:text-3xl">
-                                    {sentDetails()?.amount
-                                        ? source() === "onchain"
-                                            ? i18n.t("send.payment_initiated")
-                                            : i18n.t("send.payment_sent")
-                                        : sentDetails()?.failure_reason}
-                                </h1>
-                                <div class="flex flex-col items-center gap-1">
-                                    <div class="text-xl">
-                                        <AmountSats
-                                            amountSats={sentDetails()?.amount}
-                                            icon="minus"
-                                        />
-                                    </div>
-                                    <div class="text-white/70">
-                                        <AmountFiat
-                                            amountSats={sentDetails()?.amount}
-                                            denominationSize="sm"
-                                        />
-                                    </div>
-                                </div>
-                                <hr class="w-16 bg-m-grey-400" />
-                                <Fee amountSats={sentDetails()?.fee_estimate} />
-                                <Show when={sentDetails()?.txid}>
-                                    <ExternalLink
-                                        href={mempoolTxUrl(
-                                            sentDetails()?.txid,
-                                            network
-                                        )}
-                                    >
-                                        {i18n.t("common.view_transaction")}
-                                    </ExternalLink>
-                                </Show>
-                            </Match>
-                        </Switch>
-                    </SuccessModal>
-                    <VStack biggap>
-                        <Switch>
-                            <Match
-                                when={
-                                    address() ||
-                                    invoice() ||
-                                    nodePubkey() ||
-                                    lnurlp()
+                    <Show when={!isAmtEditable()}>
+                        <AmountEditable
+                            initialAmountSats={amountSats()}
+                            setAmountSats={setAmountInput}
+                            maxAmountSats={maxAmountSats()}
+                            fee={feeEstimate()?.toString()}
+                            frozenAmount={true}
+                            onSubmit={() =>
+                                sendButtonDisabled() ? undefined : handleSend()
+                            }
+                        />
+                    </Show>
+                    <Show when={feeEstimate()}>
+                        <FeeDisplay
+                            amountSats={amountSats().toString()}
+                            fee={feeEstimate()!.toString()}
+                            maxAmountSats={maxAmountSats()}
+                        />
+                    </Show>
+                    <Show when={isHodlInvoice()}>
+                        <InfoBox accent="red">
+                            <p>{i18n.t("send.hodl_invoice_warning")}</p>
+                        </InfoBox>
+                    </Show>
+                    <Show when={error()}>
+                        <InfoBox accent="red">
+                            <p>{error()}</p>
+                        </InfoBox>
+                    </Show>
+                    <div class="flex-1" />
+
+                    <VStack>
+                        <form
+                            onSubmit={async (e) => {
+                                e.preventDefault();
+                                if (!sendButtonDisabled()) {
+                                    await handleSend();
                                 }
-                            >
-                                <MethodChooser
-                                    source={source()}
-                                    setSource={setSource}
-                                    both={!!address() && !!invoice()}
-                                />
-                                <Card title={i18n.t("send.destination")}>
-                                    <VStack>
-                                        <DestinationShower
-                                            source={source()}
-                                            description={description()}
-                                            invoice={invoice()}
-                                            address={address()}
-                                            nodePubkey={nodePubkey()}
-                                            lnurl={lnurlp()}
-                                            clearAll={clearAll}
-                                        />
-                                        <SmallHeader>
-                                            {i18n.t("common.private_tags")}
-                                        </SmallHeader>
-                                        <TagEditor
-                                            selectedValues={selectedContacts()}
-                                            setSelectedValues={
-                                                setSelectedContacts
-                                            }
-                                            placeholder={i18n.t(
-                                                "send.contact_placeholder"
-                                            )}
-                                        />
-                                    </VStack>
-                                </Card>
-                                <Show when={error()}>
-                                    <InfoBox accent="red">
-                                        <p>{error()}</p>
-                                    </InfoBox>
-                                </Show>
-                                <AmountCard
-                                    amountSats={amountSats().toString()}
-                                    setAmountSats={setAmountSats}
-                                    fee={feeEstimate()?.toString()}
-                                    isAmountEditable={isAmtEditable()}
-                                    maxAmountSats={maxAmountSats()}
-                                    skipWarnings={true}
-                                />
-                            </Match>
-                            <Match when={true}>
-                                <DestinationInput
-                                    fieldDestination={fieldDestination()}
-                                    setFieldDestination={setFieldDestination}
-                                    handleDecode={handleDecode}
-                                    handlePaste={handlePaste}
-                                />
-                            </Match>
-                        </Switch>
-                        <Show when={destination()}>
-                            <VStack>
-                                <Button
-                                    disabled={sendButtonDisabled()}
-                                    intent="blue"
-                                    onClick={handleSend}
-                                    loading={sending()}
-                                >
-                                    {sending()
-                                        ? i18n.t("send.sending")
-                                        : i18n.t("send.confirm_send")}
-                                </Button>
-                            </VStack>
-                        </Show>
-                        <FeedbackLink />
+                            }}
+                        >
+                            <SimpleInput
+                                type="text"
+                                placeholder={i18n.t("send.what_for")}
+                                onInput={(e) =>
+                                    setWhatForInput(e.currentTarget.value)
+                                }
+                                value={whatForInput()}
+                            />
+                        </form>
+                        <Button
+                            disabled={sendButtonDisabled()}
+                            intent="blue"
+                            onClick={handleSend}
+                            loading={sending()}
+                        >
+                            {sending()
+                                ? i18n.t("send.sending")
+                                : i18n.t("send.confirm_send")}
+                        </Button>
                     </VStack>
-                </DefaultMain>
-                <NavBar activeTab="send" />
-            </SafeArea>
+                </div>
+            </DefaultMain>
+            <NavBar activeTab="send" />
         </MutinyWalletGuard>
     );
 }

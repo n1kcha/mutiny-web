@@ -1,7 +1,12 @@
 /* @refresh reload */
 
 // Inspired by https://github.com/solidjs/solid-realworld/blob/main/src/store/index.js
-import { MutinyBalance, MutinyWallet } from "@mutinywallet/mutiny-wasm";
+import {
+    MutinyBalance,
+    MutinyWallet,
+    TagItem
+} from "@mutinywallet/mutiny-wasm";
+import { useNavigate, useSearchParams } from "@solidjs/router";
 import {
     createContext,
     onCleanup,
@@ -10,7 +15,6 @@ import {
     useContext
 } from "solid-js";
 import { createStore } from "solid-js/store";
-import { useSearchParams } from "solid-start";
 
 import { checkBrowserCompatibility } from "~/logic/browserCompatibility";
 import {
@@ -20,19 +24,26 @@ import {
     MutinyWalletSettingStrings,
     setupMutinyWallet
 } from "~/logic/mutinyWalletSetup";
-import { ParsedParams } from "~/logic/waila";
-import { eify, MutinyTagItem, subscriptionValid } from "~/utils";
+import { ParsedParams, toParsedParams } from "~/logic/waila";
+import { MutinyFederationIdentity } from "~/routes/settings";
+import {
+    BTC_OPTION,
+    Currency,
+    eify,
+    subscriptionValid,
+    USD_OPTION
+} from "~/utils";
 
 const MegaStoreContext = createContext<MegaStore>();
 
-export type LoadStage =
+type LoadStage =
     | "fresh"
     | "checking_double_init"
     | "downloading"
     | "setup"
     | "done";
 
-export type MegaStore = [
+type MegaStore = [
     {
         mutiny_wallet?: MutinyWallet;
         deleting: boolean;
@@ -40,7 +51,9 @@ export type MegaStore = [
         balance?: MutinyBalance;
         is_syncing?: boolean;
         last_sync?: number;
+        price_sync_backoff_multiple?: number;
         price: number;
+        fiat: Currency;
         has_backed_up: boolean;
         wallet_loading: boolean;
         setup_error?: Error;
@@ -49,9 +62,16 @@ export type MegaStore = [
         subscription_timestamp?: number;
         readonly mutiny_plus: boolean;
         needs_password: boolean;
+        password?: string;
         load_stage: LoadStage;
         settings?: MutinyWalletSettingStrings;
         safe_mode?: boolean;
+        npub?: string;
+        preferredInvoiceType: "unified" | "lightning" | "onchain";
+        betaWarned: boolean;
+        testflightPromptDismissed: boolean;
+        should_zap_hodl: boolean;
+        federations?: MutinyFederationIdentity[];
     },
     {
         setup(password?: string): Promise<void>;
@@ -59,22 +79,43 @@ export type MegaStore = [
         setScanResult(scan_result: ParsedParams | undefined): void;
         sync(): Promise<void>;
         setHasBackedUp(): void;
-        listTags(): Promise<MutinyTagItem[]>;
+        listTags(): Promise<TagItem[]>;
         checkForSubscription(justPaid?: boolean): Promise<void>;
+        fetchPrice(fiat: Currency): Promise<number>;
+        saveFiat(fiat: Currency): void;
+        saveNpub(npub: string): void;
+        setPreferredInvoiceType(
+            type: "unified" | "lightning" | "onchain"
+        ): void;
+        handleIncomingString(
+            str: string,
+            onError: (e: Error) => void,
+            onSuccess: (value: ParsedParams) => void
+        ): void;
+        setBetaWarned(): void;
+        setTestFlightPromptDismissed(): void;
+        toggleHodl(): void;
+        dropMutinyWallet(): void;
+        refreshFederations(): Promise<void>;
     }
 ];
 
 export const Provider: ParentComponent = (props) => {
     const [searchParams] = useSearchParams();
+    const navigate = useNavigate();
 
     const [state, setState] = createStore({
         mutiny_wallet: undefined as MutinyWallet | undefined,
         deleting: false,
         scan_result: undefined as ParsedParams | undefined,
         price: 0,
+        fiat: localStorage.getItem("fiat_currency")
+            ? (JSON.parse(localStorage.getItem("fiat_currency")!) as Currency)
+            : USD_OPTION,
         has_backed_up: localStorage.getItem("has_backed_up") === "true",
         balance: undefined as MutinyBalance | undefined,
         last_sync: undefined as number | undefined,
+        price_sync_backoff_multiple: 1,
         is_syncing: false,
         wallet_loading: true,
         setup_error: undefined as Error | undefined,
@@ -86,29 +127,34 @@ export const Provider: ParentComponent = (props) => {
             return subscriptionValid(state.subscription_timestamp);
         },
         needs_password: false,
+        // If setup fails we can remember the password for checking the device lock
+        password: undefined as string | undefined,
         load_stage: "fresh" as LoadStage,
         settings: undefined as MutinyWalletSettingStrings | undefined,
-        safe_mode: searchParams.safe_mode === "true"
+        safe_mode: searchParams.safe_mode === "true",
+        npub: localStorage.getItem("npub") || undefined,
+        preferredInvoiceType: "unified" as "unified" | "lightning" | "onchain",
+        betaWarned: localStorage.getItem("betaWarned") === "true",
+        should_zap_hodl: localStorage.getItem("should_zap_hodl") === "true",
+        testflightPromptDismissed:
+            localStorage.getItem("testflightPromptDismissed") === "true",
+        federations: undefined as MutinyFederationIdentity[] | undefined
     });
 
     const actions = {
         async checkForSubscription(justPaid?: boolean): Promise<void> {
             try {
                 const timestamp = await state.mutiny_wallet?.check_subscribed();
-                console.log("timestamp:", timestamp);
-                if (timestamp) {
-                    localStorage.setItem(
-                        "subscription_timestamp",
-                        timestamp?.toString()
-                    );
+
+                // Check that timestamp is a number
+                if (timestamp && !isNaN(Number(timestamp))) {
                     setState({ subscription_timestamp: Number(timestamp) });
-                }
-            } catch (e) {
-                if (justPaid) {
+                } else if (justPaid) {
                     // we make a fake timestamp for 24 hours from now, in case the server is down
                     const timestamp = Math.ceil(Date.now() / 1000) + 86400;
                     setState({ subscription_timestamp: timestamp });
                 }
+            } catch (e) {
                 console.error(e);
             }
         },
@@ -117,6 +163,16 @@ export const Provider: ParentComponent = (props) => {
                 // If we're already in an error state there should be no reason to continue
                 if (state.setup_error) {
                     throw state.setup_error;
+                }
+
+                // If there's already a mutiny wallet in state abort!
+                if (state.mutiny_wallet) {
+                    setState({
+                        setup_error: new Error(
+                            "Existing Mutiny Wallet already running, aborting setup"
+                        )
+                    });
+                    return;
                 }
 
                 setState({
@@ -134,7 +190,8 @@ export const Provider: ParentComponent = (props) => {
                 const mutinyWallet = await setupMutinyWallet(
                     settings,
                     password,
-                    state.safe_mode
+                    state.safe_mode,
+                    state.should_zap_hodl
                 );
 
                 // Give other components access to settings via the store
@@ -143,48 +200,39 @@ export const Provider: ParentComponent = (props) => {
                 // If we get this far then we don't need the password anymore
                 setState({ needs_password: false });
 
-                // Subscription stuff. Skip if it's not already in localstorage
-                let subscription_timestamp = undefined;
-                const stored_subscription_timestamp = localStorage.getItem(
-                    "subscription_timestamp"
-                );
-                // If we have a stored timestamp, check if it's still valid
-                if (stored_subscription_timestamp) {
-                    try {
-                        const timestamp =
-                            await mutinyWallet?.check_subscribed();
+                // Check if we're subscribed and update the timestamp
+                try {
+                    const timestamp = await mutinyWallet?.check_subscribed();
 
-                        // Check that timestamp is a number
-                        if (!timestamp || isNaN(Number(timestamp))) {
-                            throw new Error("Timestamp is not a number");
-                        }
-
-                        subscription_timestamp = Number(timestamp);
-                        localStorage.setItem(
-                            "subscription_timestamp",
-                            timestamp.toString()
-                        );
-                    } catch (e) {
-                        console.error(e);
+                    // Check that timestamp is a number
+                    if (timestamp && !isNaN(Number(timestamp))) {
+                        setState({ subscription_timestamp: Number(timestamp) });
                     }
+                } catch (e) {
+                    console.error(e);
                 }
 
-                // Get balance optimistically
+                // Get balance
                 const balance = await mutinyWallet.get_balance();
+
+                // Get federations
+                const federations =
+                    (await mutinyWallet.list_federations()) as MutinyFederationIdentity[];
 
                 setState({
                     mutiny_wallet: mutinyWallet,
                     wallet_loading: false,
-                    subscription_timestamp: subscription_timestamp,
                     load_stage: "done",
-                    balance
+                    balance,
+                    federations
                 });
             } catch (e) {
                 console.error(e);
                 if (eify(e).message === "Incorrect password entered.") {
                     setState({ needs_password: true });
                 } else {
-                    setState({ setup_error: eify(e) });
+                    // We only save the password for checking the timelock, will be blown away by the reload
+                    setState({ setup_error: eify(e), password: password });
                 }
             }
         },
@@ -202,18 +250,41 @@ export const Provider: ParentComponent = (props) => {
                 console.error(e);
             }
         },
+        async priceCheck(): Promise<void> {
+            try {
+                const price = await actions.fetchPrice(state.fiat);
+                setState({
+                    price: price || 0,
+                    fiat: state.fiat,
+                    price_sync_backoff_multiple: 1
+                });
+            } catch (e) {
+                setState({
+                    price: 1,
+                    fiat: BTC_OPTION,
+                    price_sync_backoff_multiple:
+                        state.price_sync_backoff_multiple * 2
+                });
+            }
+        },
         async sync(): Promise<void> {
             try {
                 if (state.mutiny_wallet && !state.is_syncing) {
                     setState({ is_syncing: true });
                     const newBalance = await state.mutiny_wallet?.get_balance();
-                    const price =
-                        await state.mutiny_wallet?.get_bitcoin_price();
-                    setState({
-                        balance: newBalance,
-                        last_sync: Date.now(),
-                        price: price || 0
-                    });
+                    try {
+                        setState({
+                            balance: newBalance,
+                            last_sync: Date.now(),
+                            fiat: state.fiat
+                        });
+                    } catch (e) {
+                        setState({
+                            balance: newBalance,
+                            last_sync: Date.now(),
+                            fiat: BTC_OPTION
+                        });
+                    }
                 }
             } catch (e) {
                 console.error(e);
@@ -221,20 +292,136 @@ export const Provider: ParentComponent = (props) => {
                 setState({ is_syncing: false });
             }
         },
-        setScanResult(scan_result: ParsedParams) {
+        async fetchPrice(fiat: Currency): Promise<number | undefined> {
+            let price;
+            if (fiat.value === "BTC") {
+                price = 1;
+                return price;
+            } else {
+                try {
+                    price = await state.mutiny_wallet?.get_bitcoin_price(
+                        fiat.value.toLowerCase() || "usd"
+                    );
+                    return price;
+                } catch (e) {
+                    console.error(e);
+                    throw e;
+                }
+            }
+        },
+        setScanResult(scan_result: ParsedParams | undefined) {
             setState({ scan_result });
         },
         setHasBackedUp() {
             localStorage.setItem("has_backed_up", "true");
             setState({ has_backed_up: true });
         },
-        async listTags(): Promise<MutinyTagItem[]> {
+        async listTags(): Promise<TagItem[] | undefined> {
             try {
-                return state.mutiny_wallet?.get_tag_items() as MutinyTagItem[];
+                return state.mutiny_wallet?.get_tag_items();
             } catch (e) {
                 console.error(e);
                 return [];
             }
+        },
+        async saveFiat(fiat: Currency) {
+            localStorage.setItem("fiat_currency", JSON.stringify(fiat));
+            const price = await actions.fetchPrice(fiat);
+            setState({
+                price: price,
+                fiat: fiat
+            });
+        },
+        saveNpub(npub: string) {
+            localStorage.setItem("npub", npub);
+            setState({ npub });
+        },
+        setPreferredInvoiceType(type: "unified" | "lightning" | "onchain") {
+            setState({ preferredInvoiceType: type });
+        },
+        handleIncomingString(
+            str: string,
+            onError: (e: Error) => void,
+            onSuccess: (value: ParsedParams) => void
+        ): void {
+            try {
+                const url = new URL(str);
+                if (url && url.pathname.startsWith("/gift")) {
+                    navigate(url.pathname + url.search);
+                    return;
+                }
+
+                if (url && url.pathname.startsWith("/settings/plus")) {
+                    navigate(url.pathname + url.search);
+                    return;
+                }
+            } catch (e) {
+                // If it's not a URL, we'll just continue with normal parsing
+            }
+
+            const network = state.mutiny_wallet?.get_network() || "signet";
+            const result = toParsedParams(str || "", network);
+            if (!result.ok) {
+                if (onError) {
+                    onError(result.error);
+                }
+                return;
+            } else {
+                if (
+                    result.value?.address ||
+                    result.value?.invoice ||
+                    result.value?.node_pubkey ||
+                    (result.value?.lnurl && !result.value.is_lnurl_auth)
+                ) {
+                    if (onSuccess) {
+                        onSuccess(result.value);
+                    }
+                }
+                if (result.value?.lnurl && result.value?.is_lnurl_auth) {
+                    navigate(
+                        "/?lnurlauth=" + encodeURIComponent(result.value?.lnurl)
+                    );
+                    actions.setScanResult(undefined);
+                }
+                if (result.value?.fedimint_invite) {
+                    navigate(
+                        "/settings/federations?fedimint_invite=" +
+                            encodeURIComponent(result.value?.fedimint_invite)
+                    );
+                    actions.setScanResult(undefined);
+                }
+                if (result.value?.nostr_wallet_auth) {
+                    console.log(
+                        "nostr_wallet_auth",
+                        result.value?.nostr_wallet_auth
+                    );
+                    navigate(
+                        "/settings/connections/?nwa=" +
+                            encodeURIComponent(result.value?.nostr_wallet_auth)
+                    );
+                }
+            }
+        },
+        setBetaWarned() {
+            localStorage.setItem("betaWarned", "true");
+            setState({ betaWarned: true });
+        },
+        setTestFlightPromptDismissed() {
+            localStorage.setItem("testflightPromptDismissed", "true");
+            setState({ testflightPromptDismissed: true });
+        },
+        toggleHodl() {
+            const should_zap_hodl = !state.should_zap_hodl;
+            localStorage.setItem("should_zap_hodl", should_zap_hodl.toString());
+            setState({ should_zap_hodl });
+        },
+        dropMutinyWallet() {
+            setState({ mutiny_wallet: undefined });
+        },
+        async refreshFederations() {
+            const federations =
+                (await state.mutiny_wallet?.list_federations()) as MutinyFederationIdentity[];
+            setState({ federations });
         }
     };
 
@@ -313,6 +500,17 @@ export const Provider: ParentComponent = (props) => {
         setInterval(async () => {
             await actions.sync();
         }, 3 * 1000); // Poll every 3 seconds
+
+        // Run our first price check
+        await actions.priceCheck();
+
+        // Set up price checking every minute
+        setInterval(
+            async () => {
+                await actions.priceCheck();
+            },
+            60 * 1000 * state.price_sync_backoff_multiple
+        ); // Poll every minute * backoff multiple
     });
 
     const store = [state, actions] as MegaStore;

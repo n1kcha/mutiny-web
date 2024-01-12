@@ -2,21 +2,21 @@ import { Show } from "solid-js";
 
 import bolt from "~/assets/icons/bolt.svg";
 import chain from "~/assets/icons/chain.svg";
+import community from "~/assets/icons/community.svg";
 import { useI18n } from "~/i18n/context";
 import { useMegaStore } from "~/state/megaStore";
-import { satsToUsd } from "~/utils";
+import { satsToFormattedFiat } from "~/utils";
 
 function prettyPrintAmount(n?: number | bigint): string {
     if (!n || n.valueOf() === 0) {
         return "0";
     }
-    return n.toLocaleString();
+    return n.toLocaleString(navigator.languages[0]);
 }
 
 export function AmountSats(props: {
     amountSats: bigint | number | undefined;
-    loading?: boolean;
-    icon?: "lightning" | "chain" | "plus" | "minus";
+    icon?: "lightning" | "community" | "chain" | "plus" | "minus";
     denominationSize?: "sm" | "lg" | "xl";
 }) {
     const i18n = useI18n();
@@ -25,18 +25,20 @@ export function AmountSats(props: {
             <Show when={props.icon === "lightning"}>
                 <img src={bolt} alt="lightning" class="h-[18px]" />
             </Show>
+            <Show when={props.icon === "community"}>
+                <img src={community} alt="community" class="h-[18px]" />
+            </Show>
             <Show when={props.icon === "chain"}>
                 <img src={chain} alt="chain" class="h-[18px]" />
             </Show>
-            <h1 class="text-right font-light">
+            <h1 class="whitespace-nowrap text-right font-light">
                 <Show when={props.icon === "plus"}>
                     <span>+</span>
                 </Show>
                 <Show when={props.icon === "minus"}>
                     <span>-</span>
                 </Show>
-                {props.loading ? "..." : prettyPrintAmount(props.amountSats)}
-                &nbsp;
+                {`${prettyPrintAmount(props.amountSats)} `}
                 <span
                     class="text-base font-light"
                     classList={{
@@ -69,18 +71,21 @@ export function AmountSats(props: {
 
 export function AmountFiat(props: {
     amountSats: bigint | number | undefined;
-    loading?: boolean;
     denominationSize?: "sm" | "lg" | "xl";
 }) {
-    const i18n = useI18n();
     const [state, _] = useMegaStore();
 
-    const amountInUsd = () =>
-        satsToUsd(state.price, Number(props.amountSats) || 0, true);
+    const amountInFiat = () =>
+        (state.fiat.value === "BTC" ? "" : "~") +
+        satsToFormattedFiat(
+            state.price,
+            Number(props.amountSats) || 0,
+            state.fiat
+        );
 
     return (
-        <h2 class="font-light">
-            ~{props.loading ? "..." : amountInUsd()}
+        <h2 class="whitespace-nowrap font-light">
+            {amountInFiat()}
             <span
                 classList={{
                     "text-sm": props.denominationSize === "sm",
@@ -88,7 +93,7 @@ export function AmountFiat(props: {
                     "text-xl": props.denominationSize === "xl"
                 }}
             >
-                &nbsp;{i18n.t("common.usd")}
+                {` ${state.fiat.value} `}
             </span>
         </h2>
     );
@@ -99,9 +104,9 @@ export function AmountSmall(props: {
 }) {
     const i18n = useI18n();
     return (
-        <span class="font-light">
-            {prettyPrintAmount(props.amountSats)}&nbsp;
-            <span class="text-sm">
+        <span class="whitespace-nowrap text-sm font-light md:text-base">
+            {`${prettyPrintAmount(props.amountSats)} `}
+            <span class="text-xs md:text-sm">
                 {props.amountSats === 1 || props.amountSats === 1n
                     ? i18n.t("common.sat")
                     : i18n.t("common.sats")}

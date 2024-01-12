@@ -1,6 +1,7 @@
 name: Release Android Staging
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - master
@@ -64,9 +65,10 @@ jobs:
           VITE_RGS: https://rgs.mutinynet.com/snapshot/
           VITE_AUTH: https://auth-staging.mutinywallet.com
           VITE_SUBSCRIPTIONS: https://subscriptions-staging.mutinywallet.com
-          VITE_STORAGE: https://storage-staging.mutinywallet.com
+          VITE_STORAGE: https://storage-staging.mutinywallet.com/v2
           VITE_FEEDBACK: https://feedback-staging.mutinywallet.com
           VITE_SCORER: https://scorer-staging.mutinywallet.com
+          VITE_PRIMAL: https://primal-cache.mutinywallet.com/api
         run: pnpm build
 
       - name: Capacitor sync
@@ -84,6 +86,8 @@ jobs:
           alias: ${{ secrets.KEY_ALIAS }}
           keyStorePassword: ${{ secrets.KEY_STORE_PASSWORD }}
           keyPassword: ${{ secrets.KEY_PASSWORD }}
+        env:
+          BUILD_TOOLS_VERSION: "30.0.3"
 
       - name: Build APK
         working-directory: android
@@ -97,61 +101,34 @@ jobs:
           alias: ${{ secrets.KEY_ALIAS }}
           keyStorePassword: ${{ secrets.KEY_STORE_PASSWORD }}
           keyPassword: ${{ secrets.KEY_PASSWORD }}
-
-      - name: Create Release
-        id: create_release
-        uses: actions/create-release@v1
         env:
-          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
-        with:
-          tag_name: ${{ format('build-{0}', github.run_number) }}
-          release_name: Prerelease ${{ format('build-{0}', github.run_number) }}
-          body: Signet preleases based on every push to master.
-          draft: false
-          prerelease: true
+          BUILD_TOOLS_VERSION: "30.0.3"
 
       # F-Droid APK
       - name: Upload F-Droid APK Universal Asset
         id: upload-release-asset-fdroid-universal-apk
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        uses: actions/upload-artifact@v3
         with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: android/app/build/outputs/apk/fdroid/release/app-fdroid-universal-release-unsigned-signed.apk
-          asset_name: mutiny-wallet-fdroid-universal-master.apk
-          asset_content_type: application/zip
+          path: android/app/build/outputs/apk/fdroid/release/app-fdroid-universal-release-unsigned-signed.apk
+          name: mutiny-wallet-fdroid-universal-master.apk
 
       - name: Upload F-Droid APK x86 Asset
         id: upload-release-asset-fdroid-x86-apk
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        uses: actions/upload-artifact@v3
         with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: android/app/build/outputs/apk/fdroid/release/app-fdroid-x86-release-unsigned-signed.apk
-          asset_name: mutiny-wallet-fdroid-x86-master.apk
-          asset_content_type: application/zip
+          path: android/app/build/outputs/apk/fdroid/release/app-fdroid-x86-release-unsigned-signed.apk
+          name: mutiny-wallet-fdroid-x86-master.apk
 
       - name: Upload F-Droid APK x86_64 Asset
         id: upload-release-asset-fdroid-x86-64-apk
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        uses: actions/upload-artifact@v3
         with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: android/app/build/outputs/apk/fdroid/release/app-fdroid-x86_64-release-unsigned-signed.apk
-          asset_name: mutiny-wallet-fdroid-x86_64-master.apk
-          asset_content_type: application/zip
+          path: android/app/build/outputs/apk/fdroid/release/app-fdroid-x86_64-release-unsigned-signed.apk
+          name: mutiny-wallet-fdroid-x86_64-master.apk
 
       # FDroid AAB
       - name: Upload F-Droid AAB Asset
-        id: upload-release-asset-fdroid-aab
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        uses: actions/upload-artifact@v3
         with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: android/app/build/outputs/bundle/fdroidRelease/app-fdroid-release.aab
-          asset_name: mutiny-wallet-fdroid-master.aab
-          asset_content_type: application/zip
+          path: android/app/build/outputs/bundle/fdroidRelease/app-fdroid-release.aab
+          name: mutiny-wallet-fdroid-master.aab

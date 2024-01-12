@@ -14,7 +14,7 @@ export function Toaster() {
     );
 }
 
-type ToastArg = { title: string; description: string } | Error;
+export type ToastArg = { title: string; description: string } | Error;
 
 export function showToast(arg: ToastArg) {
     if (arg instanceof Error) {
@@ -37,7 +37,7 @@ export function showToast(arg: ToastArg) {
     }
 }
 
-export function ToastItem(props: {
+function ToastItem(props: {
     toastId: number;
     title: string;
     description: string;

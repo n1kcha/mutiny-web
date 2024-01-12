@@ -5,7 +5,6 @@ export default {
         home: "Home",
         sats: "SATS",
         sat: "SAT",
-        usd: "USD",
         fee: "Fee",
         send: "Send",
         receive: "Receive",
@@ -18,10 +17,12 @@ export default {
         error_unimplemented: "Unimplemented",
         why: "Why?",
         private_tags: "Private tags",
-        view_transaction: "View Transaction",
+        view_transaction: "View transaction",
+        view_payment_details: "View payment details",
         pending: "Pending",
         error_safe_mode:
-            "Mutiny is running in safe mode. Lightning is disabled."
+            "Mutiny is running in safe mode. Lightning is disabled.",
+        self_hosted: "Self-hosted"
     },
     contacts: {
         new: "new",
@@ -35,10 +36,16 @@ export default {
         edit: "Edit",
         pay: "Pay",
         name: "Name",
+        ln_address: "Lightning Address",
         placeholder: "Satoshi",
+        lightning_address: "Lightning Address",
         unimplemented: "Unimplemented",
         not_available: "We don't do that yet",
-        error_name: "We at least need a name"
+        error_name: "We at least need a name",
+        email_error: "That doesn't look like a lightning address",
+        npub_error: "That doesn't look like a nostr npub",
+        error_ln_address_missing: "New contacts need a lightning address",
+        npub: "Nostr Npub"
     },
     receive: {
         receive_bitcoin: "Receive Bitcoin",
@@ -69,9 +76,15 @@ export default {
         spendable: "Spendable",
         channel_size: "Channel size",
         channel_reserve: "- Channel reserve",
+        error_under_min_lightning:
+            "Defaulting to On-chain. Amount is too small for your initial Lightning receive.",
+        error_creating_unified:
+            "Defaulting to On-chain. Something went wrong when creating the unified address",
+        error_creating_address:
+            "Something went wrong when creating the on-chain address",
         amount_editable: {
             receive_too_small:
-                "Your first lightning receive needs to be {{amount}} SATS or greater. A setup fee will be deducted from the requested amount.",
+                "A setup fee will be deducted from the requested amount.",
             setup_fee_lightning:
                 "A lightning setup fee will be charged if paid over lightning.",
             too_big_for_beta:
@@ -84,13 +97,17 @@ export default {
                 one_hundred_k: "100k",
                 one_million: "1m"
             },
-            del: "DEL"
+            del: "DEL",
+            balance: "Balance"
         },
         integrated_qr: {
             onchain: "On-chain",
             lightning: "Lightning",
-            unified: "Unified"
-        }
+            unified: "Unified",
+            gift: "Lightning Gift"
+        },
+        remember_choice: "Remember my choice next time",
+        what_for: "What's this for?"
     },
     send: {
         sending: "Sending...",
@@ -107,11 +124,23 @@ export default {
             of: "of",
             sats_sent: "sats sent"
         },
+        what_for: "What's this for?",
         error_low_balance:
             "We do not have enough balance to pay the given amount.",
+        error_invoice_match:
+            "Amount requested, {{amount}} SATS, does not equal amount set.",
+        error_channel_reserves: "Not enough available funds.",
+        error_address: "Invalid Lightning Address",
+        error_channel_reserves_explained:
+            "A portion of your channel balance is reserved for fees. Try sending a smaller amount or adding funds.",
         error_clipboard: "Clipboard not supported",
         error_keysend: "Keysend failed",
-        error_LNURL: "LNURL Pay failed"
+        error_LNURL: "LNURL Pay failed",
+        payment_pending: "Payment pending",
+        payment_pending_description:
+            "It's taking a while, but it's possible this payment may still go through. Please check 'Activity' for the current status.",
+        hodl_invoice_warning:
+            "This is a hodl invoice. Payments to hodl invoices can cause channel force closes, which results in high on-chain fees. Pay at your own risk!"
     },
     feedback: {
         header: "Give us feedback!",
@@ -120,8 +149,8 @@ export default {
         more: "Got more to say?",
         tracking:
             "Mutiny doesn't track or spy on your behavior, so your feedback is incredibly helpful.",
-        github: "If you're comfortable with GitHub you can also",
-        create_issue: "create an issue.",
+        github: "If you'd like support please",
+        create_issue: "create a GitHub issue.",
         link: "Feedback?",
         feedback_placeholder: "Bugs, feature requests, feedback, etc.",
         info_label: "Include contact info",
@@ -141,6 +170,7 @@ export default {
     activity: {
         title: "Activity",
         mutiny: "Mutiny",
+        wallet: "Wallet",
         nostr: "Nostr",
         view_all: "View all",
         receive_some_sats_to_get_started: "Receive some sats to get started",
@@ -149,31 +179,43 @@ export default {
         unknown: "Unknown",
         import_contacts:
             "Import your contacts from nostr to see who they're zapping.",
-        coming_soon: "Coming soon"
-    },
-    redshift: {
-        title: "Redshift",
-        unknown: "Unknown",
-        what_happened: "What happened?",
-        starting_amount: "Starting amount",
-        fees_paid: "Fees paid",
-        change: "Change",
-        outbound_channel: "Outbound channel",
-        return_channel: "Return channel",
-        where_this_goes: "Where is this going?",
-        watch_it_go: "Watch it go!",
-        choose_your: "Choose your",
-        utxo_to_begin: "UTXO to begin",
-        unshifted_utxo: "Unshifted UTXOs",
-        redshifted: "Redshifted",
-        utxos: "UTXOs",
-        no_utxos_empty_state: "No utxos (empty state)",
-        utxo_label: "UTXO",
-        utxo_caption: "Trade in your UTXO for a fresh UTXO",
-        lightning_label: "Lightning",
-        lightning_caption: "Convert your UTXO into Lightning",
-        oh_dear: "Oh dear",
-        here_is_error: "Here's what happened:"
+        coming_soon: "Coming soon",
+        private: "Private",
+        anonymous: "Anonymous",
+        from: "From:",
+        transaction_details: {
+            lightning_receive: "Received via Lightning",
+            lightning_send: "Sent via Lightning",
+            channel_open: "Channel open",
+            channel_close: "Channel close",
+            onchain_receive: "On-chain receive",
+            onchain_send: "On-chain send",
+            paid: "Paid",
+            unpaid: "Unpaid",
+            status: "Status",
+            date: "Date",
+            tagged_to: "Tagged to",
+            description: "Description",
+            fee: "Fee",
+            onchain_fee: "On-chain Fee",
+            invoice: "Invoice",
+            payment_hash: "Payment Hash",
+            payment_preimage: "Preimage",
+            txid: "Txid",
+            total: "Amount Requested",
+            balance: "Balance",
+            reserve: "Reserve",
+            peer: "Peer",
+            channel_id: "Channel ID",
+            reason: "Reason",
+            confirmed: "Confirmed",
+            unconfirmed: "Unconfirmed",
+            sweep_delay:
+                "Funds may take a few days to be swept back into the wallet",
+            no_details:
+                "No channel details found, which means this channel has likely been closed.",
+            back_home: "back home"
+        }
     },
     scanner: {
         paste: "Paste Something",
@@ -182,10 +224,11 @@ export default {
     settings: {
         header: "Settings",
         support: "Learn how to support Mutiny",
-        general: "GENERAL",
         beta_features: "BETA FEATURES",
         debug_tools: "DEBUG TOOLS",
         danger_zone: "Danger zone",
+        general: "General",
+        version: "Version:",
         admin: {
             title: "Admin Page",
             caption: "Our internal debug tools. Use wisely!",
@@ -218,7 +261,12 @@ export default {
                 amount: "Amount",
                 open_channel: "Open Channel",
                 nodes: "Nodes",
-                no_nodes: "No nodes"
+                no_nodes: "No nodes",
+                enable_zaps_to_hodl: "Enable zaps to hodl invoices?",
+                zaps_to_hodl_desc:
+                    "Zaps to hodl invoices can result in channel force closes, which results in high on-chain fees. Use at your own risk!",
+                zaps_to_hodl_enable: "Enable hodl zaps",
+                zaps_to_hodl_disable: "Disable hodl zaps"
             }
         },
         backup: {
@@ -243,37 +291,60 @@ export default {
             title: "Lightning Channels",
             outbound: "Outbound",
             inbound: "Inbound",
+            reserve: "Reserve",
             have_channels: "You have",
             have_channels_one: "lightning channel.",
             have_channels_many: "lightning channels.",
             inbound_outbound_tip:
                 "Outbound is the amount of money you can spend on lightning. Inbound is the amount you can receive without incurring a lightning service fee.",
+            reserve_tip:
+                "About 1% of your channel balance is reserved on lightning for fees. Additional reserves are required for channels you opened via swap.",
             no_channels:
-                "It looks like you don't have any channels yet. To get started, receive some sats over lightning, or swap some on-chain funds into a channel. Get your hands dirty!"
+                "It looks like you don't have any channels yet. To get started, receive some sats over lightning, or swap some on-chain funds into a channel. Get your hands dirty!",
+            close_channel: "Close",
+            online_channels: "Online Channels",
+            offline_channels: "Offline Channels",
+            close_channel_confirm:
+                "Closing this channel will move the balance on-chain and incur an on-chain fee."
         },
         connections: {
             title: "Wallet Connections",
             error_name: "Name cannot be empty",
             error_connection: "Failed to create Wallet Connection",
+            error_budget_zero: "Budget must be greater than zero",
             add_connection: "Add Connection",
             manage_connections: "Manage Connections",
-            disable_connection: "Disable",
-            enable_connection: "Enable",
+            manage_gifts: "Manage Gifts",
+            delete_connection: "Delete",
             new_connection: "New Connection",
+            edit_connection: "Edit Connection",
             new_connection_label: "Name",
             new_connection_placeholder: "My favorite nostr client...",
             create_connection: "Create Connection",
+            save_connection: "Save Changes",
+            edit_budget: "Edit Budget",
             open_app: "Open App",
             open_in_nostr_client: "Open in Nostr Client",
             open_in_primal: "Open in Primal",
+            nostr_client_not_found: "Nostr client not found",
+            client_not_found_description:
+                "Install a nostr client like Primal, Amethyst, or Damus to open this link.",
             relay: "Relay",
             authorize:
                 "Authorize external services to request payments from your wallet. Pairs great with Nostr clients.",
             pending_nwc: {
                 title: "Pending Requests",
-                configure_link: "Configure",
-                approve_all: "Approve All"
-            }
+                approve_all: "Approve All",
+                deny_all: "Deny All"
+            },
+            careful:
+                "Be careful where you share this connection! Requests within budget will paid automatically.",
+            spent: "Spent",
+            remaining: "Remaining",
+            confirm_delete: "Are you sure you want to delete this connection?",
+            budget: "Budget",
+            resets_every: "Resets every",
+            resubscribe_date: "Resubscribe on"
         },
         emergency_kit: {
             title: "Emergency Kit",
@@ -301,7 +372,9 @@ export default {
                 title: "Download debug logs",
                 something_screwy:
                     "Something screwy going on? Check out the logs!",
-                download_logs: "Download Logs"
+                download_logs: "Download Logs",
+                password: "Enter your password to decrypt",
+                confirm_password_label: "Confirm Password"
             },
             delete_everything: {
                 delete: "Delete Everything",
@@ -329,13 +402,26 @@ export default {
             confirm_password_placeholder: "Enter the same password",
             encrypt: "Encrypt",
             skip: "Skip",
-            error_match: "Passwords do not match"
+            error_match: "Passwords do not match",
+            error_same_as_existingpassword:
+                "New password must not match existing password"
         },
         decrypt: {
             title: "Enter your password",
             decrypt_wallet: "Decrypt Wallet",
             forgot_password_link: "Forgot Password?",
             error_wrong_password: "Invalid Password"
+        },
+        currency: {
+            title: "Currency",
+            caption: "Choose your preferred currency pair",
+            select_currency: "Select Currency",
+            select_currency_label: "Currency Pair",
+            select_currency_caption:
+                "Choosing a new currency will resync the wallet to fetch a price update",
+            request_currency_support_link:
+                "Request support for more currencies",
+            error_unsupported_currency: "Please Select a supported currency."
         },
         lnurl_auth: {
             title: "LNURL Auth",
@@ -369,7 +455,11 @@ export default {
             satisfaction: "Smug satisfaction",
             gifting: "Gifting",
             multi_device: "Multi-device access",
-            more: "... and more to come"
+            ios_beta_access: "iOS beta access",
+            more: "... and more to come",
+            cta_description:
+                "Enjoy early access to new features and premium functionality.",
+            cta_but_already_plus: "Thank you for your support!"
         },
         restore: {
             title: "Restore",
@@ -404,8 +494,85 @@ export default {
             lsp_label: "LSP",
             lsp_caption:
                 "Lightning Service Provider. Automatically opens channels to you for inbound liquidity. Also wraps invoices for privacy.",
+            lsps_connection_string_label: "LSPS Connection String",
+            lsps_connection_string_caption:
+                "Lightning Service Provider. Automatically opens channels to you for inbound liquidity. Using LSP specification.",
+            error_lsps_connection_string:
+                "That doesn't look like node connection string",
+            lsps_token_label: "LSPS Token",
+            lsps_token_caption:
+                "LSPS Token.  Used to identify what wallet is connecting to the LSP",
+            lsps_valid_error:
+                "You can either have just an LSP set or LSPS Connection String and LSPS Token set, not both.",
+            error_lsps_token: "That doesn't look like a valid token",
+            storage_label: "Storage",
+            storage_caption: "Encrypted VSS backup service.",
             error_lsp: "That doesn't look like a URL",
             save: "Save"
+        },
+        nostr_contacts: {
+            title: "Nostr Contacts",
+            npub_label: "Nostr npub",
+            npub_required: "Npub can't be blank",
+            sync: "Sync"
+        },
+        manage_federations: {
+            title: "Manage Federations",
+            federation_code_label: "Federation code",
+            federation_code_required: "Federation code can't be blank",
+            federation_added_success: "Federation added successfully",
+            federation_remove_confirm:
+                "Are you sure you want to remove this federation? Make sure any funds you have are transferred to your lightning balance or another wallet first.",
+            add: "Add",
+            remove: "Remove",
+            expires: "Expires",
+            federation_id: "Federation ID",
+            description:
+                "Mutiny has experimental support for the Fedimint protocol. You'll need a federation invite code to use this feature. These funds are currently not backed up remotely. Store funds in a federation at your own risk!",
+            learn_more: "Learn more about Fedimint."
+        },
+        gift: {
+            give_sats_link: "Give sats as a gift",
+            title: "Gifting",
+            no_plus_caption: "Upgrade to Mutiny+ to enable gifting",
+            receive_too_small:
+                "Your first receive needs to be {{amount}} SATS or greater.",
+            setup_fee_lightning:
+                "A lightning setup fee will be charged to receive this gift.",
+            already_claimed: "This gift has already been claimed",
+            sender_is_poor:
+                "The sender doesn't have enough balance to pay this gift.",
+            sender_timed_out:
+                "Gift payment timed out. The sender may be offline, or this gift has already been claimed.",
+            sender_generic_error: "Sender sent error: {{error}}",
+            receive_header: "You've been gifted some sats!",
+            receive_description:
+                "You must be pretty special. To claim your money just hit the big button. Funds will be added to this wallet the next time your gifter is online.",
+            receive_claimed:
+                "Gift claimed! You should see the gift hit your balance shortly.",
+            receive_cta: "Claim Gift",
+            receive_try_again: "Try Again",
+            send_header: "Create Gift",
+            send_explainer:
+                "Give the gift of sats. Create a Mutiny gift URL that can be claimed by anyone with a web browser.",
+            send_name_required: "This is for your records",
+            send_name_label: "Recipient Name",
+            send_header_claimed: "Gift Received!",
+            send_claimed: "Your gift has been claimed. Thanks for sharing.",
+            send_sharable_header: "Sharable URL",
+            send_instructions:
+                "Copy this gift URL to your recipient, or ask them to scan this QR code with their wallet.",
+            send_another: "Create Another",
+            send_small_warning:
+                "A brand new Mutiny user won't be able to redeem fewer than 100k sats.",
+            send_cta: "Create a gift",
+            send_delete_button: "Delete Gift",
+            send_delete_confirm:
+                "Are you sure you want to delete this gift? Is this your rugpull moment?",
+            send_tip:
+                "Your copy of Mutiny Wallet needs to be open for the gift to be redeemed.",
+            need_plus:
+                "Upgrade to Mutiny+ to enable gifting. Gifting allows you to create a Mutiny gift URL that can be claimed by anyone with a web browser."
         }
     },
     swap: {
@@ -424,9 +591,16 @@ export default {
         connecting: "Connecting...",
         confirm_swap: "Confirm Swap"
     },
+    reload: {
+        mutiny_update: "Mutiny Update",
+        new_version_description:
+            "New version of Mutiny has been cached, reload to start using it.",
+        reload: "Reload"
+    },
     error: {
         title: "Error",
         emergency_link: "emergency kit.",
+        reload: "Reload",
         restart: {
             title: "Something *extra* screwy going on? Stop the nodes!",
             start: "Start",
@@ -461,7 +635,14 @@ export default {
             existing_tab: {
                 title: "Multiple tabs detected",
                 description:
-                    "Mutiny currently only supports use in one tab at a time. It looks like you have another tab open with Mutiny running. Please close that tab and refresh this page, or close this tab and refresh the other one."
+                    "Mutiny can only be used in one tab at a time. It looks like you have another tab open with Mutiny running. Please close that tab and refresh this page, or close this tab and refresh the other one."
+            },
+            already_running: {
+                title: "Mutiny may be running on another device",
+                description:
+                    "Mutiny can only be used in one place at a time. It looks like you have another device or browser using this wallet. If you've recently closed Mutiny on another device, please wait a few minutes and try again.",
+                retry_again_in: "Retry again in",
+                seconds: "seconds"
             },
             incompatible_browser: {
                 title: "Incompatible browser",
@@ -521,46 +702,25 @@ export default {
                 "If you want to use pretend money to test out Mutiny without risk,",
             signet_link: "check out our Signet version."
         },
-        transaction_details: {
-            lightning_receive: "Lightning receive",
-            lightning_send: "Lightning send",
-            channel_open: "Channel open",
-            channel_close: "Channel close",
-            onchain_receive: "On-chain receive",
-            onchain_send: "On-chain send",
-            paid: "Paid",
-            unpaid: "Unpaid",
-            status: "Status",
-            when: "When",
-            description: "Description",
-            fee: "Fee",
-            fees: "Fees",
-            bolt11: "Bolt11",
-            payment_hash: "Payment Hash",
-            preimage: "Preimage",
-            txid: "Txid",
-            balance: "Balance",
-            reserve: "Reserve",
-            peer: "Peer",
-            channel_id: "Channel ID",
-            reason: "Reason",
-            confirmed: "Confirmed",
-            unconfirmed: "Unconfirmed",
-            no_details:
-                "No channel details found, which means this channel has likely been closed."
-        },
         more_info: {
             whats_with_the_fees: "What's with the fees?",
             self_custodial:
                 "Mutiny is a self-custodial wallet. To initiate a lightning payment we must open a lightning channel, which requires a minimum amount and a setup fee.",
             future_payments:
-                "Future payments, both send and recieve, will only incur normal network fees and a nominal service fee unless your channel runs out of inbound capacity.",
+                "Future payments, both send and receive, will only incur normal network fees and a nominal service fee unless your channel runs out of inbound capacity.",
             liquidity: "Learn more about liquidity"
         },
         confirm_dialog: {
             are_you_sure: "Are you sure?",
             cancel: "Cancel",
             confirm: "Confirm"
+        },
+        lnurl_auth: {
+            auth_request: "Authentication Request",
+            login: "Login",
+            decline: "Decline",
+            error: "That didn't work for some reason.",
+            authenticated: "Authenticated!"
         }
     }
 };

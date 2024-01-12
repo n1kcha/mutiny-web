@@ -1,33 +1,36 @@
 import { createForm, url } from "@modular-forms/solid";
-import { ExternalLink } from "@mutinywallet/ui";
+import { createResource, Match, Suspense, Switch } from "solid-js";
 
 import {
     BackLink,
     Button,
     Card,
     DefaultMain,
+    ExternalLink,
     LargeHeader,
-    MutinyWalletGuard,
+    LoadingShimmer,
     NavBar,
     NiceP,
     SafeArea,
     showToast,
+    SimpleErrorDisplay,
     TextField
 } from "~/components";
 import { useI18n } from "~/i18n/context";
 import {
+    getSettings,
     MutinyWalletSettingStrings,
     setSettings
 } from "~/logic/mutinyWalletSetup";
-import { useMegaStore } from "~/state/megaStore";
 import { eify } from "~/utils";
 
-export function SettingsStringsEditor() {
+function SettingsStringsEditor(props: {
+    initialSettings: MutinyWalletSettingStrings;
+}) {
     const i18n = useI18n();
-    const [state, _actions] = useMegaStore();
     const [settingsForm, { Form, Field }] =
         createForm<MutinyWalletSettingStrings>({
-            initialValues: state.settings
+            initialValues: props.initialSettings
         });
 
     async function handleSubmit(values: MutinyWalletSettingStrings) {
@@ -105,6 +108,20 @@ export function SettingsStringsEditor() {
                         />
                     )}
                 </Field>
+                <Field
+                    name="storage"
+                    validate={[url(i18n.t("settings.servers.error_lsp"))]}
+                >
+                    {(field, props) => (
+                        <TextField
+                            {...props}
+                            value={field.value}
+                            error={field.error}
+                            label={i18n.t("settings.servers.storage_label")}
+                            caption={i18n.t("settings.servers.storage_caption")}
+                        />
+                    )}
+                </Field>
                 <div />
                 <Button
                     type="submit"
@@ -118,23 +135,33 @@ export function SettingsStringsEditor() {
     );
 }
 
-export default function Servers() {
+function AsyncSettingsEditor() {
+    const [settings] = createResource<MutinyWalletSettingStrings>(getSettings);
+
+    return (
+        <Switch>
+            <Match when={settings.error}>
+                <SimpleErrorDisplay error={settings.error} />
+            </Match>
+            <Match when={settings.latest}>
+                <SettingsStringsEditor initialSettings={settings()!} />
+            </Match>
+        </Switch>
+    );
+}
+
+export function Servers() {
     const i18n = useI18n();
     return (
-        <MutinyWalletGuard>
-            <SafeArea>
-                <DefaultMain>
-                    <BackLink
-                        href="/settings"
-                        title={i18n.t("settings.header")}
-                    />
-                    <LargeHeader>
-                        {i18n.t("settings.servers.title")}
-                    </LargeHeader>
-                    <SettingsStringsEditor />
-                </DefaultMain>
-                <NavBar activeTab="settings" />
-            </SafeArea>
-        </MutinyWalletGuard>
+        <SafeArea>
+            <DefaultMain>
+                <BackLink href="/settings" title={i18n.t("settings.header")} />
+                <LargeHeader>{i18n.t("settings.servers.title")}</LargeHeader>
+                <Suspense fallback={<LoadingShimmer />}>
+                    <AsyncSettingsEditor />
+                </Suspense>
+            </DefaultMain>
+            <NavBar activeTab="settings" />
+        </SafeArea>
     );
 }

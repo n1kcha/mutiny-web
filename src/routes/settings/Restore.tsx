@@ -45,7 +45,7 @@ function validateWord(word?: string): boolean {
     return WORDS_EN.includes(word?.trim() ?? "");
 }
 
-export function SeedTextField(props: TextFieldProps) {
+function SeedTextField(props: TextFieldProps) {
     const [fieldProps] = splitProps(props, [
         "placeholder",
         "ref",
@@ -96,7 +96,7 @@ function TwelveWordsEntry() {
 
     async function handlePaste() {
         try {
-            let text;
+            let text: string;
 
             if (Capacitor.isNativePlatform()) {
                 const { value } = await Clipboard.read();
@@ -111,7 +111,7 @@ function TwelveWordsEntry() {
             }
 
             // split words on space or newline
-            const words = text.split(/[\s\n]+/);
+            const words = text.trim().split(/[\s\n]+/);
 
             if (words.length !== 12) {
                 return showToast(
@@ -134,6 +134,7 @@ function TwelveWordsEntry() {
                 console.log("Mutiny wallet loaded, stopping");
                 try {
                     await state.mutiny_wallet.stop();
+                    actions.dropMutinyWallet();
                 } catch (e) {
                     console.error(e);
                 }
@@ -251,7 +252,7 @@ function TwelveWordsEntry() {
     );
 }
 
-export default function RestorePage() {
+export function Restore() {
     const i18n = useI18n();
     return (
         <SafeArea>

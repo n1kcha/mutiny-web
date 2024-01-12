@@ -1,15 +1,13 @@
-import { Contact } from "@mutinywallet/mutiny-wasm";
-import { createResource, Match, ParentComponent, Switch } from "solid-js";
+import { TagItem } from "@mutinywallet/mutiny-wasm";
+import { Match, ParentComponent, Switch } from "solid-js";
 
 import bolt from "~/assets/icons/bolt.svg";
 import chain from "~/assets/icons/chain.svg";
-import off from "~/assets/icons/download-channel.svg";
 import shuffle from "~/assets/icons/shuffle.svg";
-import on from "~/assets/icons/upload-channel.svg";
-import { AmountFiat, AmountSats } from "~/components";
+import { AmountFiat, AmountSats, LabelCircle } from "~/components";
 import { useI18n } from "~/i18n/context";
 import { useMegaStore } from "~/state/megaStore";
-import { generateGradient, timeAgo } from "~/utils";
+import { timeAgo } from "~/utils";
 
 export const ActivityAmount: ParentComponent<{
     amount: string;
@@ -44,46 +42,6 @@ export const ActivityAmount: ParentComponent<{
     );
 };
 
-function LabelCircle(props: {
-    name?: string;
-    contact: boolean;
-    label: boolean;
-    channel?: HackActivityType;
-}) {
-    const [gradient] = createResource(async () => {
-        if (props.name && props.contact) {
-            return generateGradient(props.name || "?");
-        } else {
-            return undefined;
-        }
-    });
-
-    const text = () =>
-        props.contact && props.name && props.name.length
-            ? props.name[0]
-            : props.label
-            ? "≡"
-            : "?";
-    const bg = () => (props.name && props.contact ? gradient() : "");
-
-    return (
-        <div
-            class="flex h-[3rem] w-[3rem] flex-none items-center justify-center rounded-full border-b border-t border-b-white/10 border-t-white/50 bg-neutral-700 text-3xl uppercase"
-            style={{ background: bg() }}
-        >
-            <Switch>
-                <Match when={props.channel === "ChannelOpen"}>
-                    <img src={on} alt="channel open" />
-                </Match>
-                <Match when={props.channel === "ChannelClose"}>
-                    <img src={off} alt="channel close" />
-                </Match>
-                <Match when={true}>{text()}</Match>
-            </Switch>
-        </div>
-    );
-}
-
 export type HackActivityType =
     | "Lightning"
     | "OnChain"
@@ -93,7 +51,7 @@ export type HackActivityType =
 export function ActivityItem(props: {
     // This is actually the ActivityType enum but wasm is hard
     kind: HackActivityType;
-    contacts: Contact[];
+    contacts: TagItem[];
     labels: string[];
     amount: number | bigint;
     date?: number | bigint;
@@ -105,6 +63,8 @@ export function ActivityItem(props: {
 
     const firstContact = () =>
         props.contacts?.length ? props.contacts[0] : null;
+
+    // TODO: pass a value to the timeago function that will cause it to recalculate on sync
 
     return (
         <div
@@ -134,6 +94,7 @@ export function ActivityItem(props: {
                 <div class="">
                     <LabelCircle
                         name={firstContact()?.name}
+                        image_url={firstContact()?.image_url}
                         contact={props.contacts?.length > 0}
                         label={props.labels?.length > 0}
                         channel={props.kind}
@@ -176,7 +137,12 @@ export function ActivityItem(props: {
                 </Switch>
                 <Switch>
                     <Match when={props.date && props.date > 2147483647}>
-                        <time class="text-sm text-neutral-500">
+                        <time class="text-sm text-m-yellow">
+                            {i18n.t("common.pending")}
+                        </time>
+                    </Match>
+                    <Match when={timeAgo(props.date) === "Pending"}>
+                        <time class="text-sm text-m-yellow">
                             {i18n.t("common.pending")}
                         </time>
                     </Match>
