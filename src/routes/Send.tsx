@@ -1,5 +1,6 @@
-import { MutinyInvoice } from "@mutinywallet/mutiny-wasm";
-import { A, useNavigate, useSearchParams } from "@solidjs/router";
+import { MutinyInvoice, TagItem } from "@mutinywallet/mutiny-wasm";
+import { useLocation, useNavigate, useSearchParams } from "@solidjs/router";
+import { Eye, EyeOff, Link, X, Zap } from "lucide-solid";
 import {
     createEffect,
     createMemo,
@@ -13,9 +14,6 @@ import {
     Switch
 } from "solid-js";
 
-import bolt from "~/assets/icons/bolt.svg";
-import chain from "~/assets/icons/chain.svg";
-import close from "~/assets/icons/close.svg";
 import {
     ActivityDetailsModal,
     AmountEditable,
@@ -24,6 +22,7 @@ import {
     BackPop,
     Button,
     DefaultMain,
+    Failure,
     Fee,
     FeeDisplay,
     HackActivityType,
@@ -31,10 +30,10 @@ import {
     LabelCircle,
     LoadingShimmer,
     MegaCheck,
-    MegaClock,
-    MegaEx,
+    MethodChoice,
     MutinyWalletGuard,
     NavBar,
+    SharpButton,
     showToast,
     SimpleInput,
     SmallHeader,
@@ -49,6 +48,7 @@ import { useMegaStore } from "~/state/megaStore";
 import { eify, vibrateSuccess } from "~/utils";
 
 export type SendSource = "lightning" | "onchain";
+export type PrivacyLevel = "Public" | "Private" | "Anonymous" | "Not Available";
 
 // const TEST_DEST = "bitcoin:tb1pdh43en28jmhnsrhxkusja46aufdlae5qnfrhucw5jvefw9flce3sdxfcwe?amount=0.00001&label=heyo&lightning=lntbs10u1pjrwrdedq8dpjhjmcnp4qd60w268ve0jencwzhz048ruprkxefhj0va2uspgj4q42azdg89uupp5gngy2pqte5q5uvnwcxwl2t8fsdlla5s6xl8aar4xcsvxeus2w2pqsp5n5jp3pz3vpu92p3uswttxmw79a5lc566herwh3f2amwz2sp6f9tq9qyysgqcqpcxqrpwugv5m534ww5ukcf6sdw2m75f2ntjfh3gzeqay649256yvtecgnhjyugf74zakaf56sdh66ec9fqep2kvu6xv09gcwkv36rrkm38ylqsgpw3yfjl"
 // const TEST_DEST_ADDRESS = "tb1pdh43en28jmhnsrhxkusja46aufdlae5qnfrhucw5jvefw9flce3sdxfcwe"
@@ -71,36 +71,18 @@ function DestinationShower(props: {
     nodePubkey?: string;
     lnurl?: string;
     lightning_address?: string;
-    contact_id?: string;
+    contact?: TagItem;
 }) {
-    const [state, _actions] = useMegaStore();
-
-    async function getContact(id: string) {
-        console.log("fetching contact", id);
-        try {
-            const contact = state.mutiny_wallet?.get_tag_item(id);
-            console.log("fetching contact", contact);
-            // This shouldn't happen
-            if (!contact) throw new Error("Contact not found");
-            return contact;
-        } catch (e) {
-            console.error(e);
-            showToast(eify(e));
-        }
-    }
-
-    const [contact] = createResource(() => props.contact_id, getContact);
-
     return (
         <Switch>
-            <Match when={contact.latest}>
+            <Match when={props.contact}>
                 <DestinationItem
-                    title={contact()?.name || ""}
-                    value={contact()?.ln_address}
+                    title={props.contact?.name || ""}
+                    value={props.contact?.ln_address}
                     icon={
                         <LabelCircle
-                            name={contact()?.name || ""}
-                            image_url={contact()?.image_url}
+                            name={props.contact?.name || ""}
+                            image_url={props.contact?.image_url}
                             contact
                             label={false}
                         />
@@ -111,26 +93,14 @@ function DestinationShower(props: {
                 <DestinationItem
                     title="On-chain"
                     value={<StringShower text={props.address || ""} />}
-                    icon={
-                        <img
-                            class="h-[1rem] w-[1rem]"
-                            src={chain}
-                            alt="blockchain"
-                        />
-                    }
+                    icon={<Link class="h-4 w-4" />}
                 />
             </Match>
             <Match when={props.invoice && props.source === "lightning"}>
                 <DestinationItem
                     title="Lightning"
                     value={<StringShower text={props.invoice?.bolt11 || ""} />}
-                    icon={
-                        <img
-                            class="h-[1rem] w-[1rem]"
-                            src={bolt}
-                            alt="lightning"
-                        />
-                    }
+                    icon={<Zap class="h-4 w-4" />}
                 />
             </Match>
             <Match
@@ -139,26 +109,14 @@ function DestinationShower(props: {
                 <DestinationItem
                     title="Lightning"
                     value={props.lightning_address || ""}
-                    icon={
-                        <img
-                            class="h-[1rem] w-[1rem]"
-                            src={bolt}
-                            alt="lightning"
-                        />
-                    }
+                    icon={<Zap class="h-4 w-4" />}
                 />
             </Match>
             <Match when={props.nodePubkey && props.source === "lightning"}>
                 <DestinationItem
                     title="Lightning"
                     value={<StringShower text={props.nodePubkey || ""} />}
-                    icon={
-                        <img
-                            class="h-[1rem] w-[1rem]"
-                            src={bolt}
-                            alt="lightning"
-                        />
-                    }
+                    icon={<Zap class="h-4 w-4" />}
                 />
             </Match>
             <Match
@@ -171,20 +129,14 @@ function DestinationShower(props: {
                 <DestinationItem
                     title="Lightning"
                     value={<StringShower text={props.lnurl || ""} />}
-                    icon={
-                        <img
-                            class="h-[1rem] w-[1rem]"
-                            src={bolt}
-                            alt="lightning"
-                        />
-                    }
+                    icon={<Zap class="h-4 w-4" />}
                 />
             </Match>
         </Switch>
     );
 }
 
-function DestinationItem(props: {
+export function DestinationItem(props: {
     title: string;
     value: JSX.Element;
     icon: JSX.Element;
@@ -196,48 +148,12 @@ function DestinationItem(props: {
                 <SmallHeader>{props.title}</SmallHeader>
                 <div class="text-sm text-neutral-500">{props.value}</div>
             </div>
-            <UnstyledBackPop>
+            <UnstyledBackPop default="/">
                 <div class="h-8 w-8 rounded-full bg-m-grey-800 px-1 py-1">
-                    <img src={close} alt="Clear" class="h-6 w-6" />
+                    <X class="h-6 w-6" />
                 </div>
             </UnstyledBackPop>
         </div>
-    );
-}
-
-function Failure(props: { reason: string }) {
-    const i18n = useI18n();
-
-    return (
-        <Switch>
-            <Match when={props.reason === "Payment timed out."}>
-                <MegaClock />
-                <h1 class="mb-2 mt-4 w-full text-center text-2xl font-semibold md:text-3xl">
-                    {i18n.t("send.payment_pending")}
-                </h1>
-                <InfoBox accent="white">
-                    {i18n.t("send.payment_pending_description")}
-                </InfoBox>
-            </Match>
-            <Match
-                when={props.reason === "Channel reserve amount is too high."}
-            >
-                <MegaEx />
-                <h1 class="mb-2 mt-4 w-full text-center text-2xl font-semibold md:text-3xl">
-                    {i18n.t("send.error_channel_reserves")}
-                </h1>
-                <InfoBox accent="white">
-                    {i18n.t("send.error_channel_reserves_explained")}{" "}
-                    <A href="/settings/channels">{i18n.t("common.why")}</A>
-                </InfoBox>
-            </Match>
-            <Match when={true}>
-                <MegaEx />
-                <h1 class="mb-2 mt-4 w-full text-center text-2xl font-semibold md:text-3xl">
-                    {props.reason}
-                </h1>
-            </Match>
-        </Switch>
     );
 }
 
@@ -252,6 +168,7 @@ export function Send() {
 
     // These can be derived from the destination or set by the user
     const [amountSats, setAmountSats] = createSignal(0n);
+    const [unparsedAmount, setUnparsedAmount] = createSignal(true);
 
     // These are derived from the incoming destination
     const [isAmtEditable, setIsAmtEditable] = createSignal(true);
@@ -260,7 +177,9 @@ export function Send() {
     const [nodePubkey, setNodePubkey] = createSignal<string>();
     const [lnurlp, setLnurlp] = createSignal<string>();
     const [lnAddress, setLnAddress] = createSignal<string>();
+    const [originalScan, setOriginalScan] = createSignal<string>();
     const [address, setAddress] = createSignal<string>();
+    const [payjoinEnabled, setPayjoinEnabled] = createSignal<boolean>();
     const [description, setDescription] = createSignal<string>();
     const [contactId, setContactId] = createSignal<string>();
     const [isHodlInvoice, setIsHodlInvoice] = createSignal<boolean>(false);
@@ -283,8 +202,8 @@ export function Send() {
                 ? sentDetails()?.txid
                 : undefined
             : sentDetails()
-            ? sentDetails()?.payment_hash
-            : undefined;
+              ? sentDetails()?.payment_hash
+              : undefined;
         const kind = sentDetails()?.txid ? "OnChain" : "Lightning";
 
         console.log("Opening details modal: ", paymentTxId, kind);
@@ -410,12 +329,16 @@ export function Send() {
 
     const [parsingDestination, setParsingDestination] = createSignal(false);
 
+    const [decodingLnUrl, setDecodingLnUrl] = createSignal(false);
+
     function handleDestination(source: ParsedParams | undefined) {
         if (!source) return;
         setParsingDestination(true);
-
+        setOriginalScan(source.original);
         try {
             if (source.address) setAddress(source.address);
+            if (source.payjoin_enabled)
+                setPayjoinEnabled(source.payjoin_enabled);
             if (source.memo) setDescription(source.memo);
             if (source.contact_id) setContactId(source.contact_id);
 
@@ -430,6 +353,7 @@ export function Send() {
                 processLnurl(source as ParsedParams & { lnurl: string });
             } else {
                 setAmountSats(source.amount_sats || 0n);
+                if (source.amount_sats) setIsAmtEditable(false);
                 setSource("onchain");
             }
             // Return the source just to trigger `decodedDestination` as not undefined
@@ -446,6 +370,11 @@ export function Send() {
         state.mutiny_wallet
             ?.decode_invoice(source.invoice!)
             .then((invoice) => {
+                if (invoice.expire <= Date.now() / 1000) {
+                    navigate("/search");
+                    throw new Error(i18n.t("send.error_expired"));
+                }
+
                 if (invoice?.amount_sats) {
                     setAmountSats(invoice.amount_sats);
                     setIsAmtEditable(false);
@@ -466,9 +395,11 @@ export function Send() {
 
     // A ParsedParams with an lnurl in it
     function processLnurl(source: ParsedParams & { lnurl: string }) {
+        setDecodingLnUrl(true);
         state.mutiny_wallet
             ?.decode_lnurl(source.lnurl)
             .then((lnurlParams) => {
+                setDecodingLnUrl(false);
                 if (lnurlParams.tag === "payRequest") {
                     if (lnurlParams.min == lnurlParams.max) {
                         setAmountSats(lnurlParams.min / 1000n);
@@ -488,6 +419,11 @@ export function Send() {
                     setLnurlp(source.lnurl);
                     setSource("lightning");
                 }
+                // TODO: this is a bit of a hack, ideally we do more nav from the megastore
+                if (lnurlParams.tag === "withdrawRequest") {
+                    actions.setScanResult(source);
+                    navigate("/redeem");
+                }
             })
             .catch((e) => showToast(eify(e)));
     }
@@ -498,8 +434,14 @@ export function Send() {
         } else {
             const parsed = BigInt(amountInput());
             console.log("parsed", parsed);
+            if (!parsed) {
+                setUnparsedAmount(true);
+            }
             if (parsed > 0n) {
                 setAmountSats(parsed);
+                setUnparsedAmount(false);
+            } else {
+                setUnparsedAmount(true);
             }
         }
     });
@@ -563,12 +505,17 @@ export function Send() {
                     sentDetails.fee_estimate = payment?.fees_paid || 0;
                 }
             } else if (source() === "lightning" && lnurlp()) {
+                const zapNpub =
+                    visibility() !== "Not Available" && contact()?.npub
+                        ? contact()?.npub
+                        : undefined;
                 const payment = await state.mutiny_wallet?.lnurl_pay(
                     lnurlp()!,
                     amountSats(),
-                    undefined, // zap_npub
+                    zapNpub, // zap_npub
                     tags,
-                    undefined // comment
+                    whatForInput(), // comment
+                    visibility()
                 );
                 sentDetails.payment_hash = payment?.payment_hash;
 
@@ -588,6 +535,16 @@ export function Send() {
                         tags
                     );
 
+                    sentDetails.amount = amountSats();
+                    sentDetails.destination = address();
+                    sentDetails.txid = txid;
+                    sentDetails.fee_estimate = feeEstimate() ?? 0;
+                } else if (payjoinEnabled()) {
+                    const txid = await state.mutiny_wallet?.send_payjoin(
+                        originalScan()!,
+                        amountSats(),
+                        tags
+                    );
                     sentDetails.amount = amountSats();
                     sentDetails.destination = address();
                     sentDetails.txid = txid;
@@ -625,17 +582,107 @@ export function Send() {
 
     const sendButtonDisabled = createMemo(() => {
         return (
+            unparsedAmount() ||
             parsingDestination() ||
             sending() ||
-            amountSats() === 0n ||
+            amountSats() == 0n ||
+            amountSats() === undefined ||
             !!error()
         );
     });
 
+    const lightningMethod = createMemo<MethodChoice>(() => {
+        return {
+            method: "lightning",
+            maxAmountSats: maxLightning()
+        };
+    });
+
+    const onchainMethod = createMemo<MethodChoice>(() => {
+        return {
+            method: "onchain",
+            maxAmountSats: maxOnchain()
+        };
+    });
+
+    const sendMethods = createMemo<MethodChoice[]>(() => {
+        if (lnAddress() || lnurlp() || nodePubkey()) {
+            return [lightningMethod()];
+        }
+
+        if (invoice() && address()) {
+            return [lightningMethod(), onchainMethod()];
+        }
+
+        if (invoice()) {
+            return [lightningMethod()];
+        }
+
+        if (address()) {
+            return [onchainMethod()];
+        }
+
+        // We should never get here
+        console.error("No send methods found");
+
+        return [];
+    });
+
+    function setSourceFromMethod(method: MethodChoice) {
+        if (method.method === "lightning") {
+            setSource("lightning");
+        } else if (method.method === "onchain") {
+            setSource("onchain");
+        }
+    }
+
+    const activeMethod = createMemo(() => {
+        if (source() === "lightning") {
+            return lightningMethod();
+        } else if (source() === "onchain") {
+            return onchainMethod();
+        }
+    });
+
+    const [visibility, setVisibility] =
+        createSignal<PrivacyLevel>("Not Available");
+
+    // If the contact has an npub and it's an lnurlp send set the default visibility to private zap
+    createEffect(() => {
+        contact()?.npub && lnurlp() && setVisibility("Private");
+    });
+
+    function toggleVisibility() {
+        if (visibility() === "Not Available") {
+            setVisibility("Private");
+        } else if (visibility() === "Private") {
+            setVisibility("Public");
+        } else {
+            setVisibility("Not Available");
+        }
+    }
+
+    async function getContact(id: string) {
+        console.log("fetching contact", id);
+        try {
+            const contact = state.mutiny_wallet?.get_tag_item(id);
+            console.log("fetching contact", contact);
+            // This shouldn't happen
+            if (!contact) throw new Error("Contact not found");
+            return contact;
+        } catch (e) {
+            console.error(e);
+            showToast(eify(e));
+        }
+    }
+
+    const [contact] = createResource(contactId, getContact);
+    const location = useLocation();
+
     return (
         <MutinyWalletGuard>
             <DefaultMain>
-                <BackPop />
+                <BackPop default="/" />
                 <SuccessModal
                     confirmText={
                         sentDetails()?.amount
@@ -648,7 +695,12 @@ export function Send() {
                     }}
                     onConfirm={() => {
                         setSentDetails(undefined);
-                        navigate("/");
+                        const state = location.state as { previous?: string };
+                        if (state?.previous) {
+                            navigate(state?.previous);
+                        } else {
+                            navigate("/");
+                        }
                     }}
                 >
                     <Switch>
@@ -712,7 +764,7 @@ export function Send() {
                             nodePubkey={nodePubkey()}
                             lnurl={lnurlp()}
                             lightning_address={lnAddress()}
-                            contact_id={contactId()}
+                            contact={contact()}
                         />
                     </Suspense>
                     <div class="flex-1" />
@@ -721,23 +773,32 @@ export function Send() {
                         <AmountEditable
                             initialAmountSats={amountSats()}
                             setAmountSats={setAmountInput}
-                            maxAmountSats={maxAmountSats()}
                             fee={feeEstimate()?.toString()}
                             onSubmit={() =>
                                 sendButtonDisabled() ? undefined : handleSend()
                             }
+                            activeMethod={activeMethod()}
+                            methods={sendMethods()}
+                            setChosenMethod={setSourceFromMethod}
                         />
+                    </Show>
+                    <Show when={payjoinEnabled() && source() === "onchain"}>
+                        <InfoBox accent="green">
+                            <p>{i18n.t("send.payjoin_send")}</p>
+                        </InfoBox>
                     </Show>
                     <Show when={!isAmtEditable()}>
                         <AmountEditable
                             initialAmountSats={amountSats()}
                             setAmountSats={setAmountInput}
-                            maxAmountSats={maxAmountSats()}
                             fee={feeEstimate()?.toString()}
                             frozenAmount={true}
                             onSubmit={() =>
                                 sendButtonDisabled() ? undefined : handleSend()
                             }
+                            activeMethod={activeMethod()}
+                            methods={sendMethods()}
+                            setChosenMethod={setSourceFromMethod}
                         />
                     </Show>
                     <Show when={feeEstimate()}>
@@ -752,7 +813,7 @@ export function Send() {
                             <p>{i18n.t("send.hodl_invoice_warning")}</p>
                         </InfoBox>
                     </Show>
-                    <Show when={error()}>
+                    <Show when={error() && !decodingLnUrl()}>
                         <InfoBox accent="red">
                             <p>{error()}</p>
                         </InfoBox>
@@ -760,6 +821,51 @@ export function Send() {
                     <div class="flex-1" />
 
                     <VStack>
+                        <Suspense>
+                            <div class="flex w-full">
+                                <SharpButton
+                                    onClick={toggleVisibility}
+                                    // If there's no npub, or if there's an invoice, don't let switch to zap
+                                    disabled={!contact()?.npub || !!invoice()}
+                                >
+                                    <div class="flex items-center gap-2">
+                                        <Switch>
+                                            <Match
+                                                when={
+                                                    visibility() ===
+                                                    "Not Available"
+                                                }
+                                            >
+                                                <EyeOff class="h-4 w-4" />
+                                                <span>
+                                                    {i18n.t("send.private")}
+                                                </span>
+                                            </Match>
+                                            <Match
+                                                when={
+                                                    visibility() === "Private"
+                                                }
+                                            >
+                                                <Zap class="h-4 w-4" />
+                                                <EyeOff class="h-4 w-4" />
+                                                <span>
+                                                    {i18n.t("send.privatezap")}
+                                                </span>
+                                            </Match>
+                                            <Match
+                                                when={visibility() === "Public"}
+                                            >
+                                                <Zap class="h-4 w-4" />
+                                                <Eye class="h-4 w-4" />
+                                                <span>
+                                                    {i18n.t("send.publiczap")}
+                                                </span>
+                                            </Match>
+                                        </Switch>
+                                    </div>
+                                </SharpButton>
+                            </div>
+                        </Suspense>
                         <form
                             onSubmit={async (e) => {
                                 e.preventDefault();
@@ -770,7 +876,11 @@ export function Send() {
                         >
                             <SimpleInput
                                 type="text"
-                                placeholder={i18n.t("send.what_for")}
+                                placeholder={
+                                    visibility() === "Not Available"
+                                        ? i18n.t("send.what_for")
+                                        : i18n.t("send.zap_note")
+                                }
                                 onInput={(e) =>
                                     setWhatForInput(e.currentTarget.value)
                                 }

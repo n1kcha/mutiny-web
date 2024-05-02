@@ -6,6 +6,7 @@ import {
 } from "@kobalte/core";
 import { TagItem, TagKind } from "@mutinywallet/mutiny-wasm";
 import { A } from "@solidjs/router";
+import { Check, ChevronDown, X } from "lucide-solid";
 import {
     createResource,
     createSignal,
@@ -17,9 +18,6 @@ import {
     Switch
 } from "solid-js";
 
-import check from "~/assets/icons/check.svg";
-import close from "~/assets/icons/close.svg";
-import down from "~/assets/icons/down.svg";
 import {
     Button,
     DecryptDialog,
@@ -43,11 +41,24 @@ export const Card: ParentComponent<{
     titleElement?: JSX.Element;
 }> = (props) => {
     return (
-        <div class="flex w-full flex-col gap-2 rounded-xl bg-neutral-950/50 p-4">
+        <div class="flex w-full flex-col gap-2 rounded-xl bg-neutral-900 p-4">
             {props.title && <SmallHeader>{props.title}</SmallHeader>}
             {props.titleElement && props.titleElement}
             {props.children}
         </div>
+    );
+};
+
+export const ButtonCard: ParentComponent<{
+    onClick: () => void;
+}> = (props) => {
+    return (
+        <button
+            onClick={() => props.onClick()}
+            class="flex w-full rounded-xl border border-white/10 bg-neutral-900 p-4 active:-mb-[1px] active:mt-[1px] active:opacity-70"
+        >
+            {props.children}
+        </button>
     );
 };
 
@@ -66,9 +77,16 @@ export const FancyCard: ParentComponent<{
     tag?: JSX.Element;
 }> = (props) => {
     return (
-        <div class="flex flex-col gap-2 rounded-xl border border-b-4 border-black/50 bg-m-grey-800 p-4 shadow-fancy-card">
-            {props.children}
-        </div>
+        <VStack smallgap>
+            <Show when={props.title}>
+                <div class="mt-2 pl-4">
+                    <SmallHeader>{props.title}</SmallHeader>
+                </div>
+            </Show>
+            <div class="flex flex-col gap-2 rounded-xl border border-b-4 border-black/50 bg-m-grey-900 p-4 shadow-fancy-card">
+                {props.children}
+            </div>
+        </VStack>
     );
 };
 
@@ -80,7 +98,7 @@ export const SettingsCard: ParentComponent<{
             <div class="mt-2 pl-4">
                 <SmallHeader>{props.title}</SmallHeader>
             </div>
-            <div class="flex w-full flex-col gap-2 rounded-xl bg-m-grey-800 py-4">
+            <div class="flex w-full flex-col gap-2 rounded-xl bg-m-grey-900 py-4">
                 {props.children}
             </div>
         </VStack>
@@ -106,11 +124,7 @@ export const Collapser: ParentComponent<{
                     </Switch>
                     <span>{props.title}</span>
                 </div>
-                <img
-                    src={down}
-                    alt="expand / collapse"
-                    class="collapsible__trigger-icon"
-                />
+                <ChevronDown />
             </Collapsible.Trigger>
             <Collapsible.Content class="bg-m-grey-950 p-4 shadow-inner">
                 {props.children}
@@ -119,29 +133,18 @@ export const Collapser: ParentComponent<{
     );
 };
 
-export const SafeArea: ParentComponent = (props) => {
+export const DefaultMain = (props: { children?: JSX.Element }) => {
     return (
-        <div class="safe-left safe-right h-device">
-            {/* <div class="flex-1 disable-scrollbars overflow-y-scroll md:pl-[8rem] md:pr-[6rem]"> */}
-            {props.children}
-            {/* </div> */}
-        </div>
-    );
-};
-
-export const DefaultMain = (props: {
-    children?: JSX.Element;
-    zeroBottomPadding?: boolean;
-}) => {
-    return (
-        <main
-            class="mx-auto flex w-full max-w-[600px] flex-1 flex-col gap-4 p-4"
-            classList={{ "pb-0": props.zeroBottomPadding }}
-        >
-            {props.children}
-            {/* CSS is hard sometimes */}
-            {/* <div class="py-1" /> */}
-        </main>
+        <>
+            {/* blur content that goes under the notification bar */}
+            <div class="relative">
+                <div class="fixed left-0 right-0 top-0 z-50 bg-m-grey-975/70 backdrop-blur-lg safe-top" />
+            </div>
+            <main class="flex h-full flex-1 flex-col gap-4 px-4 pb-8 pt-4">
+                {props.children}
+                <div class="h-4" />
+            </main>
+        </>
     );
 };
 
@@ -157,7 +160,7 @@ const FullscreenLoader = () => {
         <div class="flex w-full flex-col items-center justify-center gap-4 h-device">
             <LoadingSpinner wide />
             <Show when={waitedTooLong()}>
-                <p class="max-w-[20rem] text-neutral-400">
+                <p class="max-w-[20rem] text-m-grey-350">
                     {i18n.t("error.load_time.stuck")}{" "}
                     <A class="text-white" href="/settings/emergencykit">
                         {i18n.t("error.emergency_link")}
@@ -170,6 +173,7 @@ const FullscreenLoader = () => {
 
 export const MutinyWalletGuard: ParentComponent = (props) => {
     const [state, _] = useMegaStore();
+
     return (
         <Suspense fallback={<FullscreenLoader />}>
             <Switch>
@@ -177,11 +181,9 @@ export const MutinyWalletGuard: ParentComponent = (props) => {
                     {props.children}
                 </Match>
                 <Match when={true}>
-                    <SafeArea>
-                        <DefaultMain>
-                            <LoadingIndicator />
-                        </DefaultMain>
-                    </SafeArea>
+                    <DefaultMain>
+                        <LoadingIndicator />
+                    </DefaultMain>
                 </Match>
             </Switch>
             <DecryptDialog />
@@ -208,14 +210,14 @@ export const LargeHeader: ParentComponent<{
 }> = (props) => {
     return (
         <header
-            class="mb-2 mt-4 flex w-full items-center justify-between"
+            class="mb-2 mt-2 flex w-full items-center justify-between"
             classList={{
                 "justify-between": !props.centered,
                 "justify-center": props.centered
             }}
         >
             <h1
-                class="text-3xl font-semibold"
+                class="text-2xl font-semibold"
                 classList={{
                     "text-center": props.centered
                 }}
@@ -223,6 +225,16 @@ export const LargeHeader: ParentComponent<{
                 {props.children}
             </h1>
             <Show when={props.action}>{props.action}</Show>
+        </header>
+    );
+};
+
+export const MediumHeader: ParentComponent = (props) => {
+    return (
+        <header class="mt-2">
+            <h2 class="text-xl font-semibold text-m-grey-350">
+                {props.children}
+            </h2>
         </header>
     );
 };
@@ -245,12 +257,16 @@ export const VStack: ParentComponent<{
     );
 };
 
+export const Spacer = () => {
+    return <div class="h-4 w-4" />;
+};
+
 export const NiceP: ParentComponent = (props) => {
     return <p class="text-xl font-light text-neutral-200">{props.children}</p>;
 };
 
 export const TinyText: ParentComponent = (props) => {
-    return <p class="text-sm text-neutral-400">{props.children}</p>;
+    return <p class="text-sm text-m-grey-350">{props.children}</p>;
 };
 
 export const TinyButton: ParentComponent<{
@@ -303,9 +319,9 @@ export function Checkbox(props: {
             onChange={props.onChange}
         >
             <KCheckbox.Input class="" />
-            <KCheckbox.Control class="flex-0 h-8 w-8 rounded-lg border-2 border-white bg-neutral-800 ui-checked:bg-m-red">
+            <KCheckbox.Control class="flex-0 flex h-8 w-8 items-center justify-center rounded-lg border-2 border-white bg-neutral-800 ui-checked:bg-m-red">
                 <KCheckbox.Indicator>
-                    <img src={check} class="h-8 w-8" alt="check" />
+                    <Check class="h-6 w-6" />
                 </KCheckbox.Indicator>
             </KCheckbox.Control>
             <KCheckbox.Label class="flex flex-1 flex-col gap-1 font-semibold">
@@ -320,8 +336,8 @@ export function Checkbox(props: {
 
 export function ModalCloseButton() {
     return (
-        <button class="self-center justify-self-center rounded-lg hover:bg-white/10 active:bg-m-blue">
-            <img src={close} alt="Close" class="h-8 w-8" />
+        <button class="flex h-8 w-8 items-center justify-center self-center justify-self-center rounded-lg hover:bg-white/10 active:bg-m-blue">
+            <X class="h-6 w-6" />
         </button>
     );
 }

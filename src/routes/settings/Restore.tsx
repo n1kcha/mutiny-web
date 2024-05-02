@@ -10,9 +10,9 @@ import {
     validate
 } from "@modular-forms/solid";
 import { MutinyWallet } from "@mutinywallet/mutiny-wasm";
+import { LucideClipboard } from "lucide-solid";
 import { createSignal, For, Show, splitProps } from "solid-js";
 
-import pasteIcon from "~/assets/icons/paste.svg";
 import {
     BackLink,
     Button,
@@ -22,7 +22,6 @@ import {
     LargeHeader,
     NavBar,
     NiceP,
-    SafeArea,
     showToast,
     TextFieldProps,
     VStack
@@ -41,8 +40,8 @@ const initialValues: SeedWordsForm = {
 };
 
 function validateWord(word?: string): boolean {
-    // return word?.trim() === "bacon";
-    return WORDS_EN.includes(word?.trim() ?? "");
+    const trimmed = word?.trim();
+    return trimmed ? WORDS_EN.has(trimmed) : false;
 }
 
 function SeedTextField(props: TextFieldProps) {
@@ -78,7 +77,7 @@ function SeedTextField(props: TextFieldProps) {
     );
 }
 
-function TwelveWordsEntry() {
+export function TwelveWordsEntry() {
     const i18n = useI18n();
     const [state, actions] = useMegaStore();
 
@@ -223,11 +222,7 @@ function TwelveWordsEntry() {
                         >
                             <div class="flex items-center gap-2">
                                 <span>{i18n.t("settings.restore.paste")}</span>
-                                <img
-                                    src={pasteIcon}
-                                    alt="paste"
-                                    class="h-4 w-4"
-                                />
+                                <LucideClipboard class="h-4 w-4" />
                             </div>
                         </button>
                     </div>
@@ -255,21 +250,17 @@ function TwelveWordsEntry() {
 export function Restore() {
     const i18n = useI18n();
     return (
-        <SafeArea>
-            <DefaultMain>
-                <BackLink title={i18n.t("settings.header")} href="/settings" />
-                <LargeHeader>{i18n.t("settings.restore.title")}</LargeHeader>
-                <VStack>
-                    <NiceP>
-                        <p>{i18n.t("settings.restore.restore_tip")}</p>
-                        <p>
-                            {i18n.t("settings.restore.multi_browser_warning")}
-                        </p>
-                    </NiceP>
-                    <TwelveWordsEntry />
-                </VStack>
-            </DefaultMain>
+        <DefaultMain>
+            <BackLink title={i18n.t("settings.header")} href="/settings" />
+            <LargeHeader>{i18n.t("settings.restore.title")}</LargeHeader>
+            <VStack>
+                <NiceP>
+                    <p>{i18n.t("settings.restore.restore_tip")}</p>
+                    <p>{i18n.t("settings.restore.multi_browser_warning")}</p>
+                </NiceP>
+                <TwelveWordsEntry />
+            </VStack>
             <NavBar activeTab="settings" />
-        </SafeArea>
+        </DefaultMain>
     );
 }

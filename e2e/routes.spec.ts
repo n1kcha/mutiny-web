@@ -1,12 +1,13 @@
 import { expect, Page, test } from "@playwright/test";
 
+import { loadHome, visitSettings } from "./utils";
+
 const routes = [
     "/",
-    "/activity",
     "/feedback",
-    "/gift",
     "/receive",
     "/scanner",
+    "/search",
     "/send",
     "/swap",
     "/settings"
@@ -19,13 +20,10 @@ const settingsRoutes = [
     "/connections",
     "/currency",
     "/emergencykit",
-    "/encrypt",
-    "/gift",
     "/plus",
     "/restore",
     "/servers",
-    "/syncnostrcontacts",
-    "/federations"
+    "/nostrkeys"
 ];
 
 const settingsRoutesPrefixed = settingsRoutes.map((route) => {
@@ -57,25 +55,13 @@ test.beforeEach(async ({ page }) => {
 });
 
 test("visit each route", async ({ page }) => {
-    // Start on the home page
-    // Expect a title "to contain" a substring.
-    await expect(page).toHaveTitle(/Mutiny Wallet/);
-
-    // Wait for an element matching the selector to appear in DOM.
-    await page.waitForSelector("text=0 SATS");
-
-    console.log("Page loaded.");
-
-    // Wait for a while just to make sure we can load everything
-    await page.waitForTimeout(1000);
+    await loadHome(page);
 
     checklist.set("/", true);
 
-    await checkRoute(page, "/activity", "Activity", checklist);
-    await page.goBack();
+    await visitSettings(page);
 
-    // Navigate to settings
-    await checkRoute(page, "/settings", "Settings", checklist);
+    checklist.set("/settings", true);
 
     // Mutiny+
     await checkRoute(page, "/settings/plus", "Mutiny+", checklist);
@@ -106,31 +92,8 @@ test("visit each route", async ({ page }) => {
     await checkRoute(page, "/settings/servers", "Servers", checklist);
     await page.goBack();
 
-    // Connections
-    await checkRoute(
-        page,
-        "/settings/connections",
-        "Wallet Connections",
-        checklist
-    );
-    await page.goBack();
-
-    // Sync Nostr Contacts
-    await checkRoute(
-        page,
-        "/settings/syncnostrcontacts",
-        "Sync Nostr Contacts",
-        checklist
-    );
-    await page.goBack();
-
-    // Manage Federations
-    await checkRoute(
-        page,
-        "/settings/federations",
-        "Manage Federations",
-        checklist
-    );
+    // Nostr Keys
+    await checkRoute(page, "/settings/nostrkeys", "Nostr Keys", checklist);
     await page.goBack();
 
     // Emergency Kit
@@ -146,32 +109,44 @@ test("visit each route", async ({ page }) => {
     await checkRoute(page, "/settings/admin", "Secret Debug Tools", checklist);
     await page.goBack();
 
-    // Go back home
-    await page.goBack();
-
     // Feedback
     await checkRoute(page, "/feedback", "Give us feedback!", checklist);
     await page.goBack();
 
-    // Receive is covered in another test
-    checklist.set("/receive", true);
+    // Go back home
+    await page.goBack();
+
+    // Try the fab button
+    await page.locator("#fab").click();
+    await page.locator("text=Send").click();
+    await expect(page.locator("input").first()).toBeFocused();
 
     // Send is covered in another test
     checklist.set("/send", true);
 
-    // Scanner
-    await page.locator(`a[href='/scanner']`).first().click();
-    await expect(page.locator("button").first()).toHaveText("Paste Something");
-    checklist.set("/scanner", true);
+    await page.goBack();
 
-    // Now we have to check routes that aren't linked to directly for whatever reason
-    await page.goto(
-        "http://localhost:3420/gift?amount=50000&nwc_uri=nostr%2Bwalletconnect%3A%2F%2Ff6d55dff6da0f23e0d609121905aaa8da5d2bad7759459402e2bee1162912556%3Frelay%3Dwss%253A%252F%252Fnostr.mutinywallet.com%252F%26secret%3D8a2d579a182e9091d36d5668eb1c3b301d98bc792d94e866526123df79568355"
-    );
-    await expect(page.locator("h2").nth(1)).toHaveText(
-        "You've been gifted some sats!"
-    );
-    checklist.set("/gift", true);
+    // Try the fab button again
+    await page.locator("#fab").click();
+    // (There are actually two buttons with the "Receive text on first run)
+    await page.locator("text=Receive").last().click();
+
+    await expect(page.locator("h1").first()).toHaveText("Receive Bitcoin");
+
+    // Actual receive is covered in another test
+    checklist.set("/receive", true);
+
+    await page.goBack();
+
+    // Try the fab button again
+    await page.locator("#fab").click();
+    await page.locator("text=Scan").click();
+
+    // Scanner
+    await expect(
+        page.locator("button:has-text('Paste Something')")
+    ).toBeVisible();
+    checklist.set("/scanner", true);
 
     // Visit connections nwa params
     const nwaParams =
@@ -187,18 +162,6 @@ test("visit each route", async ({ page }) => {
         page.getByRole("heading", { name: "Swap to Lightning" })
     ).toBeVisible();
     checklist.set("/swap", true);
-
-    // Gift
-    await page.goto("http://localhost:3420/settings/gift");
-    await expect(page.locator("h1")).toHaveText("Create Gift");
-    checklist.set("/settings/gift", true);
-
-    // Encrypt
-    await page.goto("http://localhost:3420/settings/encrypt");
-    await expect(page.locator("h1")).toHaveText(
-        "Encrypt your seed words (optional)"
-    );
-    checklist.set("/settings/encrypt", true);
 
     // print how many routes we've visited
     checklist.forEach((value, key) => {

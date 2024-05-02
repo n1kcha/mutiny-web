@@ -7,8 +7,7 @@ import {
     Show
 } from "solid-js";
 
-import { AmountSmall, BigMoney } from "~/components";
-import { useI18n } from "~/i18n/context";
+import { AmountSats, BigMoney, SharpButton } from "~/components";
 import { useMegaStore } from "~/state/megaStore";
 import {
     btcFloatRounding,
@@ -19,17 +18,32 @@ import {
     toDisplayHandleNaN
 } from "~/utils";
 
+export type MethodChoice = {
+    method: "lightning" | "onchain";
+    maxAmountSats?: bigint;
+};
+
+// Make sure to update this when we get the fedi option in here!
+function methodToIcon(method: MethodChoice["method"]) {
+    if (method === "lightning") {
+        return "lightning";
+    } else if (method === "onchain") {
+        return "chain";
+    }
+}
+
 export const AmountEditable: ParentComponent<{
     initialAmountSats: string | bigint;
     setAmountSats: (s: bigint) => void;
-    maxAmountSats?: bigint;
     fee?: string;
     frozenAmount?: boolean;
     onSubmit?: () => void;
+    activeMethod?: MethodChoice;
+    methods?: MethodChoice[];
+    setChosenMethod?: (method: MethodChoice) => void;
 }> = (props) => {
     const [state, _actions] = useMegaStore();
     const [mode, setMode] = createSignal<"fiat" | "sats">("sats");
-    const i18n = useI18n();
     const [localSats, setLocalSats] = createSignal(
         props.initialAmountSats.toString() || "0"
     );
@@ -92,7 +106,6 @@ export const AmountEditable: ParentComponent<{
                 );
             }
         } else {
-            console.log("we're in the fiat branch");
             sane = fiatInputSanitizer(
                 value.replace(",", "."),
                 state.fiat.maxFractionalDigits
@@ -229,12 +242,44 @@ export const AmountEditable: ParentComponent<{
                     onFocus={() => focus()}
                 />
             </div>
-            <Show when={props.maxAmountSats}>
-                <p class="flex gap-2 px-4 py-2 text-sm font-light text-m-grey-400 md:text-base">
-                    {`${i18n.t("receive.amount_editable.balance")} `}
-                    <AmountSmall amountSats={props.maxAmountSats!} />
-                </p>
+            <Show when={props.methods?.length && props.activeMethod}>
+                <MethodChooser
+                    methods={props.methods!}
+                    activeMethod={props.activeMethod!}
+                    setChosenMethod={props.setChosenMethod}
+                />
             </Show>
         </div>
     );
 };
+
+function MethodChooser(props: {
+    activeMethod: MethodChoice;
+    methods: MethodChoice[];
+    setChosenMethod?: (method: MethodChoice) => void;
+}) {
+    function setNextMethod() {
+        const activeIndex = props.methods.findIndex(
+            (m) => m.method === props.activeMethod.method
+        );
+        const nextMethod =
+            props.methods[
+                activeIndex === props.methods.length - 1 ? 0 : activeIndex + 1
+            ];
+        props.setChosenMethod && props.setChosenMethod(nextMethod);
+    }
+    return (
+        <>
+            <SharpButton
+                onClick={setNextMethod}
+                disabled={props.methods.length === 1}
+            >
+                <AmountSats
+                    amountSats={props.activeMethod.maxAmountSats!}
+                    denominationSize="sm"
+                    icon={methodToIcon(props.activeMethod.method)}
+                />
+            </SharpButton>
+        </>
+    );
+}

@@ -1,6 +1,5 @@
-/* @refresh reload */
-
 import initMutinyWallet, { MutinyWallet } from "@mutinywallet/mutiny-wasm";
+import { SecureStoragePlugin } from "capacitor-secure-storage-plugin";
 
 export type Network = "bitcoin" | "testnet" | "regtest" | "signet";
 
@@ -17,6 +16,9 @@ export type MutinyWalletSettingStrings = {
     storage?: string;
     scorer?: string;
     selfhosted?: string;
+    primal_api?: string;
+    blind_auth?: string;
+    hermes?: string;
 };
 
 const SETTINGS_KEYS = [
@@ -79,6 +81,21 @@ const SETTINGS_KEYS = [
         name: "selfhosted",
         storageKey: "USER_SETTINGS_selfhosted",
         default: import.meta.env.VITE_SELFHOSTED
+    },
+    {
+        name: "primal_api",
+        storageKey: "USER_SETTINGS_primal_api",
+        default: import.meta.env.VITE_PRIMAL
+    },
+    {
+        name: "blind_auth",
+        storageKey: "USER_SETTINGS_blind_auth",
+        default: import.meta.env.VITE_BLIND_AUTH
+    },
+    {
+        name: "hermes",
+        storageKey: "USER_SETTINGS_hermes",
+        default: import.meta.env.VITE_HERMES
     }
 ];
 
@@ -216,7 +233,7 @@ export async function setupMutinyWallet(
     password?: string,
     safeMode?: boolean,
     shouldZapHodl?: boolean
-): Promise<MutinyWallet> {
+): Promise<MutinyWallet | undefined> {
     console.log("Starting setup...");
 
     // https://developer.mozilla.org/en-US/docs/Web/API/Storage_API
@@ -246,8 +263,33 @@ export async function setupMutinyWallet(
         auth,
         subscriptions,
         storage,
-        scorer
+        scorer,
+        primal_api,
+        blind_auth,
+        hermes
     } = settings;
+
+    let nsec;
+    // get nsec from secure storage
+    try {
+        const value = await SecureStoragePlugin.get({ key: "nsec" });
+        nsec = value.value;
+    } catch (e) {
+        console.log("No nsec stored");
+    }
+
+    // if we didn't get an nsec from storage, try to use extension
+    let extension_key;
+
+    if (!nsec && Object.prototype.hasOwnProperty.call(window, "nostr")) {
+        try {
+            // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+            // @ts-ignore ignore nostr not existing, only does if they have extension
+            extension_key = await window.nostr.getPublicKey();
+        } catch (_) {
+            console.log("No NIP-07 extension");
+        }
+    }
 
     console.log("Initializing Mutiny Manager");
     console.log("Using network", network);
@@ -261,6 +303,9 @@ export async function setupMutinyWallet(
     console.log("Using subscriptions address", subscriptions);
     console.log("Using storage address", storage);
     console.log("Using scorer address", scorer);
+    console.log("Using primal api", primal_api);
+    console.log("Using blind auth", blind_auth);
+    console.log("Using hermes", hermes);
     console.log(safeMode ? "Safe mode enabled" : "Safe mode disabled");
     console.log(shouldZapHodl ? "Hodl zaps enabled" : "Hodl zaps disabled");
 
@@ -276,7 +321,7 @@ export async function setupMutinyWallet(
         network,
         esplora,
         rgs,
-        lsp,
+        shouldUseLSPS ? undefined : lsp,
         shouldUseLSPS ? lsps_connection_string : undefined,
         shouldUseLSPS ? lsps_token : undefined,
         auth,
@@ -290,10 +335,24 @@ export async function setupMutinyWallet(
         // Safe mode
         safeMode || undefined,
         // Skip hodl invoices? (defaults to true, so if shouldZapHodl is true that's when we pass false)
-        shouldZapHodl ? false : undefined
+        shouldZapHodl ? false : undefined,
+        // Nsec override
+        nsec,
+        // Nip7
+        extension_key ? extension_key : undefined,
+        // primal URL
+        primal_api || "https://primal-cache.mutinywallet.com/api",
+        /// blind auth url
+        blind_auth,
+        /// hermes url
+        hermes
     );
 
     sessionStorage.setItem("MUTINY_WALLET_INITIALIZED", Date.now().toString());
 
-    return mutinyWallet;
+    if (mutinyWallet) {
+        return mutinyWallet;
+    } else {
+        return undefined;
+    }
 }

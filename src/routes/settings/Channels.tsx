@@ -23,7 +23,6 @@ import {
     MutinyWalletGuard,
     NavBar,
     NiceP,
-    SafeArea,
     SettingsCard,
     showToast,
     SmallHeader,
@@ -99,7 +98,7 @@ function splitChannelNumbers(channel: MutinyChannel): {
     };
 }
 
-function SingleChannelItem(props: { channel: MutinyChannel }) {
+function SingleChannelItem(props: { channel: MutinyChannel; online: boolean }) {
     const i18n = useI18n();
     const [state, _actions] = useMegaStore();
     const network = state.mutiny_wallet?.get_network() as Network;
@@ -115,9 +114,10 @@ function SingleChannelItem(props: { channel: MutinyChannel }) {
         try {
             if (!props.channel.outpoint) return;
             setConfirmLoading(true);
+            const forceClose = !props.online;
             await state.mutiny_wallet?.close_channel(
                 props.channel.outpoint,
-                false,
+                forceClose,
                 false
             );
         } catch (e) {
@@ -162,7 +162,16 @@ function SingleChannelItem(props: { channel: MutinyChannel }) {
                     onConfirm={closeChannel}
                     onCancel={() => setConfirmOpen(false)}
                 >
-                    {i18n.t("settings.channels.close_channel_confirm")}
+                    <Switch>
+                        <Match when={!props.online}>
+                            {i18n.t(
+                                "settings.channels.force_close_channel_confirm"
+                            )}
+                        </Match>
+                        <Match when={true}>
+                            {i18n.t("settings.channels.close_channel_confirm")}
+                        </Match>
+                    </Switch>
                 </ConfirmDialog>
             </VStack>
         </Card>
@@ -260,6 +269,7 @@ function LiquidityMonitor() {
                                         {(channel) => (
                                             <SingleChannelItem
                                                 channel={channel}
+                                                online={true}
                                             />
                                         )}
                                     </For>
@@ -280,6 +290,7 @@ function LiquidityMonitor() {
                                         {(channel) => (
                                             <SingleChannelItem
                                                 channel={channel}
+                                                online={false}
                                             />
                                         )}
                                     </For>
@@ -300,21 +311,14 @@ export function Channels() {
     const i18n = useI18n();
     return (
         <MutinyWalletGuard>
-            <SafeArea>
-                <DefaultMain>
-                    <BackLink
-                        href="/settings"
-                        title={i18n.t("settings.header")}
-                    />
-                    <LargeHeader>
-                        {i18n.t("settings.channels.title")}
-                    </LargeHeader>
-                    <Suspense>
-                        <LiquidityMonitor />
-                    </Suspense>
-                </DefaultMain>
-                <NavBar activeTab="settings" />
-            </SafeArea>
+            <DefaultMain>
+                <BackLink href="/settings" title={i18n.t("settings.header")} />
+                <LargeHeader>{i18n.t("settings.channels.title")}</LargeHeader>
+                <Suspense>
+                    <LiquidityMonitor />
+                </Suspense>
+            </DefaultMain>
+            <NavBar activeTab="settings" />
         </MutinyWalletGuard>
     );
 }

@@ -1,4 +1,5 @@
-import { A } from "@solidjs/router";
+import { A, useNavigate } from "@solidjs/router";
+import { AtSign } from "lucide-solid";
 import {
     createResource,
     createSignal,
@@ -12,6 +13,7 @@ import party from "~/assets/party.gif";
 import {
     BackLink,
     Button,
+    ButtonCard,
     ConfirmDialog,
     DefaultMain,
     ExternalLink,
@@ -22,7 +24,6 @@ import {
     MutinyWalletGuard,
     NavBar,
     NiceP,
-    SafeArea,
     TinyText,
     VStack
 } from "~/components";
@@ -37,21 +38,17 @@ function Perks(props: { alreadySubbed?: boolean }) {
             <Show when={props.alreadySubbed}>
                 <li>{i18n.t("settings.plus.satisfaction")}</li>
             </Show>
-            <li>{i18n.t("settings.plus.gifting")} </li>
             <li>
                 <Show
                     when={props.alreadySubbed}
-                    fallback={i18n.t("settings.plus.ios_beta_access")}
+                    fallback={i18n.t("settings.plus.ios_testflight")}
                 >
                     <ExternalLink href="https://testflight.apple.com/join/9g23f0Mc">
-                        {i18n.t("settings.plus.ios_beta_access")}
+                        {i18n.t("settings.plus.ios_testflight")}
                     </ExternalLink>
                 </Show>
             </li>
-            <li>
-                {i18n.t("settings.plus.multi_device")}{" "}
-                <em>{i18n.t("common.coming_soon")}</em>
-            </li>
+            <li>{i18n.t("settings.plus.lightning_address")}</li>
             <li>{i18n.t("settings.plus.more")}</li>
         </ul>
     );
@@ -178,67 +175,75 @@ export function Plus() {
     const i18n = useI18n();
     const [state, _actions] = useMegaStore();
 
+    const navigate = useNavigate();
+
     return (
         <MutinyWalletGuard>
-            <SafeArea>
-                <DefaultMain>
-                    <BackLink
-                        href="/settings"
-                        title={i18n.t("settings.header")}
-                    />
-                    <LargeHeader>{i18n.t("settings.plus.title")}</LargeHeader>
-                    <VStack>
-                        <Switch>
-                            <Match when={state.mutiny_plus}>
-                                <img src={party} class="mx-auto w-1/2" />
-                                <NiceP>{i18n.t("settings.plus.thanks")}</NiceP>
-                                <Perks alreadySubbed />
-                                <NiceP>
-                                    {i18n.t("settings.plus.renewal_time")}{" "}
-                                    <strong class="text-white">
-                                        {new Date(
-                                            state.subscription_timestamp! * 1000
-                                        ).toLocaleDateString()}
-                                    </strong>
-                                    .
-                                </NiceP>
-                                <NiceP>
-                                    {i18n.t("settings.plus.cancel")}{" "}
-                                    <A href="/settings/connections">
+            <DefaultMain>
+                <BackLink href="/settings" title={i18n.t("settings.header")} />
+                <LargeHeader>{i18n.t("settings.plus.title")}</LargeHeader>
+                <Switch>
+                    <Match when={state.mutiny_plus}>
+                        <img src={party} class="mx-auto w-1/2" />
+                        <NiceP>{i18n.t("settings.plus.thanks")}</NiceP>
+
+                        <Perks alreadySubbed />
+                        <NiceP>
+                            {i18n.t("settings.plus.renewal_time")}{" "}
+                            <strong class="text-white">
+                                {new Date(
+                                    state.subscription_timestamp! * 1000
+                                ).toLocaleDateString()}
+                            </strong>
+                            .
+                        </NiceP>
+                        <NiceP>
+                            {i18n.t("settings.plus.cancel")}{" "}
+                            <A href="/settings/connections">
+                                {i18n.t("settings.plus.wallet_connection")}
+                            </A>
+                        </NiceP>
+                        <Show when={import.meta.env.VITE_HERMES}>
+                            <ButtonCard
+                                onClick={() =>
+                                    navigate("/settings/lightningaddress")
+                                }
+                            >
+                                <div class="flex items-center gap-2">
+                                    <AtSign class="inline-block text-m-red" />
+                                    <NiceP>
                                         {i18n.t(
-                                            "settings.plus.wallet_connection"
+                                            "settings.lightning_address.create"
                                         )}
-                                    </A>
-                                </NiceP>
-                            </Match>
-                            <Match when={!state.mutiny_plus}>
-                                <NiceP>
-                                    {i18n.t("settings.plus.open_source")}{" "}
-                                    <strong>
-                                        {i18n.t("settings.plus.optional_pay")}
-                                    </strong>
-                                </NiceP>
-                                <NiceP>
-                                    {i18n.t("settings.plus.paying_for")}{" "}
-                                    <strong class="text-white">
-                                        {i18n.t("settings.plus.title")}
-                                    </strong>{" "}
-                                    {i18n.t("settings.plus.supports_dev")}
-                                </NiceP>
-                                <Perks />
-                                <FancyCard
-                                    title={i18n.t("settings.plus.subscribe")}
-                                >
-                                    <Suspense fallback={<LoadingShimmer />}>
-                                        <PlusCTA />
-                                    </Suspense>
-                                </FancyCard>
-                            </Match>
-                        </Switch>
-                    </VStack>
-                </DefaultMain>
-                <NavBar activeTab="settings" />
-            </SafeArea>
+                                    </NiceP>
+                                </div>
+                            </ButtonCard>
+                        </Show>
+                    </Match>
+                    <Match when={!state.mutiny_plus}>
+                        <NiceP>
+                            {i18n.t("settings.plus.open_source")}{" "}
+                            <strong>
+                                {i18n.t("settings.plus.optional_pay")}
+                            </strong>
+                        </NiceP>
+                        <NiceP>
+                            {i18n.t("settings.plus.paying_for")}{" "}
+                            <strong class="text-white">
+                                {i18n.t("settings.plus.title")}
+                            </strong>{" "}
+                            {i18n.t("settings.plus.supports_dev")}
+                        </NiceP>
+                        <Perks />
+                        <FancyCard title={i18n.t("settings.plus.subscribe")}>
+                            <Suspense fallback={<LoadingShimmer />}>
+                                <PlusCTA />
+                            </Suspense>
+                        </FancyCard>
+                    </Match>
+                </Switch>
+            </DefaultMain>
+            <NavBar activeTab="settings" />
         </MutinyWalletGuard>
     );
 }

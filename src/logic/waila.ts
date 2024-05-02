@@ -1,12 +1,11 @@
-import initWaila, { PaymentParams } from "@mutinywallet/waila-wasm";
+import { PaymentParams } from "@mutinywallet/mutiny-wasm";
 
 import { Result } from "~/utils";
 
-// Make sure we've initialzied waila before we try to use it
-await initWaila();
-
 export type ParsedParams = {
+    original: string;
     address?: string;
+    payjoin_enabled?: boolean;
     invoice?: string;
     amount_sats?: bigint;
     network?: string;
@@ -29,7 +28,6 @@ export function toParsedParams(
     try {
         params = new PaymentParams(str || "");
     } catch (e) {
-        console.error(e);
         return { ok: false, error: new Error("Invalid payment request") };
     }
 
@@ -38,8 +36,8 @@ export function toParsedParams(
     const network = !params.network
         ? ourNetwork
         : params.network === "testnet" && ourNetwork === "signet"
-        ? "signet"
-        : params.network;
+          ? "signet"
+          : params.network;
 
     if (network !== ourNetwork) {
         return {
@@ -53,7 +51,9 @@ export function toParsedParams(
     return {
         ok: true,
         value: {
+            original: str,
             address: params.address,
+            payjoin_enabled: params.payjoin_supported,
             invoice: params.invoice,
             amount_sats: params.amount_sats,
             network,

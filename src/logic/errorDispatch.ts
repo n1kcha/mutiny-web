@@ -14,6 +14,7 @@ type MutinyError =
     | "An invoice must not get payed twice."
     | "Payment timed out."
     | "The given invoice is invalid."
+    | "The given invoice is expired."
     | "Failed to create invoice."
     | "Channel reserve amount is too high."
     | "We do not have enough balance to pay the given amount."
@@ -22,6 +23,7 @@ type MutinyError =
     | "Failed to request channel from LSP due to funding error."
     | "Failed to request channel from LSP due to amount being too high."
     | "Failed to have a connection to the LSP node."
+    | "Failed to provide an invoice to the LSP."
     | "Subscription Client Not Configured"
     | "Invalid Parameter"
     | "Called incorrect lnurl function."
@@ -42,6 +44,7 @@ type MutinyError =
     | "Failed to read or write json from the front end"
     | "The given node pubkey is invalid."
     | "Failed to get nostr data."
+    | "Error with NIP-07 extension"
     | "Failed to get the bitcoin price."
     | "Satoshi amount is invalid"
     | "Failed to execute a dlc function"
@@ -49,6 +52,14 @@ type MutinyError =
     | "Invalid Arguments were given"
     | "Incorrect password entered."
     | "Cannot change password to the same password."
+    | "Failed to create payjoin request."
+    | "Payjoin response error: {0}"
+    | "Payjoin configuration failed."
+    | "Error calling Cashu Mint"
+    | "Mint URL in token is empty"
+    | "Token has been already spent."
+    | "A federation is required"
+    | "Failed to connect to a federation."
     | "Unknown Error";
 
 export function matchError(e: unknown): Error {

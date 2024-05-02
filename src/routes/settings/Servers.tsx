@@ -1,4 +1,4 @@
-import { createForm, url } from "@modular-forms/solid";
+import { createForm, custom, url } from "@modular-forms/solid";
 import { createResource, Match, Suspense, Switch } from "solid-js";
 
 import {
@@ -11,7 +11,6 @@ import {
     LoadingShimmer,
     NavBar,
     NiceP,
-    SafeArea,
     showToast,
     SimpleErrorDisplay,
     TextField
@@ -23,6 +22,26 @@ import {
     setSettings
 } from "~/logic/mutinyWalletSetup";
 import { eify } from "~/utils";
+
+const validateNotTorUrl = async (value?: string) => {
+    if (!value) {
+        return false;
+    }
+
+    // if it is one of the default URLs, it's safe
+    // need this handling for self-hosting deployments
+    if (
+        value === import.meta.env.VITE_PROXY ||
+        value === import.meta.env.VITE_ESPLORA ||
+        value === import.meta.env.VITE_RGS ||
+        value === import.meta.env.VITE_LSP ||
+        value === import.meta.env.VITE_STORAGE
+    ) {
+        return true;
+    }
+
+    return !value.includes(".onion");
+};
 
 function SettingsStringsEditor(props: {
     initialSettings: MutinyWalletSettingStrings;
@@ -54,7 +73,13 @@ function SettingsStringsEditor(props: {
                 <div />
                 <Field
                     name="proxy"
-                    validate={[url(i18n.t("settings.servers.error_proxy"))]}
+                    validate={[
+                        url(i18n.t("settings.servers.error_proxy")),
+                        custom(
+                            validateNotTorUrl,
+                            i18n.t("settings.servers.error_tor")
+                        )
+                    ]}
                 >
                     {(field, props) => (
                         <TextField
@@ -68,7 +93,13 @@ function SettingsStringsEditor(props: {
                 </Field>
                 <Field
                     name="esplora"
-                    validate={[url(i18n.t("settings.servers.error_esplora"))]}
+                    validate={[
+                        url(i18n.t("settings.servers.error_esplora")),
+                        custom(
+                            validateNotTorUrl,
+                            i18n.t("settings.servers.error_tor")
+                        )
+                    ]}
                 >
                     {(field, props) => (
                         <TextField
@@ -82,7 +113,13 @@ function SettingsStringsEditor(props: {
                 </Field>
                 <Field
                     name="rgs"
-                    validate={[url(i18n.t("settings.servers.error_rgs"))]}
+                    validate={[
+                        url(i18n.t("settings.servers.error_rgs")),
+                        custom(
+                            validateNotTorUrl,
+                            i18n.t("settings.servers.error_tor")
+                        )
+                    ]}
                 >
                     {(field, props) => (
                         <TextField
@@ -96,7 +133,13 @@ function SettingsStringsEditor(props: {
                 </Field>
                 <Field
                     name="lsp"
-                    validate={[url(i18n.t("settings.servers.error_lsp"))]}
+                    validate={[
+                        url(i18n.t("settings.servers.error_lsp")),
+                        custom(
+                            validateNotTorUrl,
+                            i18n.t("settings.servers.error_tor")
+                        )
+                    ]}
                 >
                     {(field, props) => (
                         <TextField
@@ -110,7 +153,13 @@ function SettingsStringsEditor(props: {
                 </Field>
                 <Field
                     name="storage"
-                    validate={[url(i18n.t("settings.servers.error_lsp"))]}
+                    validate={[
+                        url(i18n.t("settings.servers.error_lsp")),
+                        custom(
+                            validateNotTorUrl,
+                            i18n.t("settings.servers.error_tor")
+                        )
+                    ]}
                 >
                     {(field, props) => (
                         <TextField
@@ -153,15 +202,13 @@ function AsyncSettingsEditor() {
 export function Servers() {
     const i18n = useI18n();
     return (
-        <SafeArea>
-            <DefaultMain>
-                <BackLink href="/settings" title={i18n.t("settings.header")} />
-                <LargeHeader>{i18n.t("settings.servers.title")}</LargeHeader>
-                <Suspense fallback={<LoadingShimmer />}>
-                    <AsyncSettingsEditor />
-                </Suspense>
-            </DefaultMain>
+        <DefaultMain>
+            <BackLink href="/settings" title={i18n.t("settings.header")} />
+            <LargeHeader>{i18n.t("settings.servers.title")}</LargeHeader>
+            <Suspense fallback={<LoadingShimmer />}>
+                <AsyncSettingsEditor />
+            </Suspense>
             <NavBar activeTab="settings" />
-        </SafeArea>
+        </DefaultMain>
     );
 }

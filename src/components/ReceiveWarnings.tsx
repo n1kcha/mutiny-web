@@ -5,7 +5,10 @@ import { FeesModal } from "~/components/MoreInfoModal";
 import { useI18n } from "~/i18n/context";
 import { useMegaStore } from "~/state/megaStore";
 
-export function ReceiveWarnings(props: { amountSats: string | bigint }) {
+export function ReceiveWarnings(props: {
+    amountSats: string | bigint;
+    from_fedi_to_ln?: boolean;
+}) {
     const i18n = useI18n();
     const [state, _actions] = useMegaStore();
 
@@ -26,10 +29,13 @@ export function ReceiveWarnings(props: { amountSats: string | bigint }) {
     });
 
     const warningText = () => {
-        if (state.federations?.length !== 0) {
+        if (state.federations?.length !== 0 && props.from_fedi_to_ln !== true) {
             return undefined;
         }
-        if ((state.balance?.lightning || 0n) === 0n) {
+        if (
+            (state.balance?.lightning || 0n) === 0n &&
+            !state.settings?.lsps_connection_string
+        ) {
             return i18n.t("receive.amount_editable.receive_too_small", {
                 amount: "100,000"
             });
@@ -47,7 +53,7 @@ export function ReceiveWarnings(props: { amountSats: string | bigint }) {
         return undefined;
     };
 
-    const betaWarning = () => {
+    const sillyAmountWarning = () => {
         const parsed = Number(props.amountSats);
         if (isNaN(parsed)) {
             return undefined;
@@ -56,16 +62,13 @@ export function ReceiveWarnings(props: { amountSats: string | bigint }) {
         if (parsed >= 2099999997690000) {
             // If over 21 million bitcoin, warn that too much
             return i18n.t("receive.amount_editable.more_than_21m");
-        } else if (parsed >= 4000000) {
-            // If over 4 million sats, warn that it's a beta bro
-            return i18n.t("receive.amount_editable.too_big_for_beta");
         }
     };
 
     return (
         <Switch>
-            <Match when={betaWarning()}>
-                <InfoBox accent="red">{betaWarning()}</InfoBox>
+            <Match when={sillyAmountWarning()}>
+                <InfoBox accent="red">{sillyAmountWarning()}</InfoBox>
             </Match>
             <Match when={warningText()}>
                 <InfoBox accent="blue">

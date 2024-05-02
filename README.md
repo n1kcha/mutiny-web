@@ -29,7 +29,7 @@ just test-ui
 
 ### Formatting
 
-Hopefully your editor picks up on the `.prettirrc` file and auto formats accordingly. If you want to format everything in the project run `pnpm run format`.
+Hopefully your editor picks up on the `prettier.config.mjs` file and auto formats accordingly. If you want to format everything in the project run `pnpm run format`.
 
 ### Deploying Web
 
@@ -118,3 +118,48 @@ openssl base64 < <my-release-key.keystore> | tr -d '\n' | tee some_signing_key.j
     - `SIGNING_KEY` <- the data from `<my-release-key.keystore>`
 3. Change the `versionCode` and `versionName` on `app/build.gradle`
 4. Commit and push.
+
+## Translating
+
+### Testing language keys
+
+To check what keys are missing from your desired language:
+
+```
+just i18n $lang
+```
+
+### Adding new languages or keys
+
+1. In `public/i18n/` locate your desired language .json file or create one if one does not exist
+
+    - When creating a new language file ensure it follows the ISO 639 2-letter standard
+
+2. Populate your translation file with a translation object where all of the keys will be located
+
+If you want to add Japanese you will create a file `/public/i18n/jp.json` and populate it with keys like so:
+
+```
+{
+  "common": {
+        "continue": "続ける",
+        ...
+    }
+}
+```
+
+(You should compare your translations against the English language as all other languages are not the master and are likely deprecated)
+
+If you're using VS Code there are some nice extensions that can make this easier like i18n-ally and i18n-json-editor
+
+3. Add your language to the `Language` object in `/src/utils/languages.ts`. This will allow you to select the language via the language selector in the UI. If your desired language is set as your primary language in your browser it will be selected automatically
+
+```
+export const LANGUAGE_OPTIONS: Language[] = [
+    {
+        value: "日本語",
+        shortName: "jp"
+    },
+```
+
+4. That's it! You should now be able to see your translation keys populating the app in your desired language. When youre ready go ahead and open a PR to have you language merged for others!

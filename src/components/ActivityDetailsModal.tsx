@@ -4,22 +4,19 @@ import {
     MutinyInvoice,
     TagItem
 } from "@mutinywallet/mutiny-wasm";
+import { Copy, Link, Shuffle, Zap } from "lucide-solid";
 import {
     createEffect,
     createMemo,
     createResource,
     Match,
+    ParentComponent,
     Show,
     Suspense,
     Switch
 } from "solid-js";
 
-import bolt from "~/assets/icons/bolt.svg";
-import chain from "~/assets/icons/chain.svg";
-import copyIcon from "~/assets/icons/copy.svg";
-import shuffle from "~/assets/icons/shuffle.svg";
 import {
-    ActivityAmount,
     AmountFiat,
     AmountSats,
     FancyCard,
@@ -59,6 +56,39 @@ interface OnChainTx {
     labels: string[];
 }
 
+const ActivityAmount: ParentComponent<{
+    amount: string;
+    price: number;
+    positive?: boolean;
+    center?: boolean;
+}> = (props) => {
+    return (
+        <div
+            class="flex flex-col gap-1"
+            classList={{
+                "items-end": !props.center,
+                "items-center": props.center
+            }}
+        >
+            <div
+                class="justify-end"
+                classList={{ "text-m-green": props.positive }}
+            >
+                <AmountSats
+                    amountSats={Number(props.amount)}
+                    icon={props.positive ? "plus" : undefined}
+                />
+            </div>
+            <div class="text-sm text-white/70">
+                <AmountFiat
+                    amountSats={Number(props.amount)}
+                    denominationSize="sm"
+                />
+            </div>
+        </div>
+    );
+};
+
 export const OVERLAY = "fixed inset-0 z-50 bg-black/50 backdrop-blur-sm";
 export const DIALOG_POSITIONER =
     "fixed inset-0 z-50 flex items-center justify-center";
@@ -74,7 +104,7 @@ function LightningHeader(props: { info: MutinyInvoice }) {
                 {props.info.inbound
                     ? i18n.t("activity.transaction_details.lightning_receive")
                     : i18n.t("activity.transaction_details.lightning_send")}
-                <img src={bolt} alt="lightning bolt" class="h-4 w-4" />
+                <Zap class="h-4 w-4" />
             </div>
             <div class="flex flex-col items-center">
                 <div
@@ -119,10 +149,12 @@ function OnchainHeader(props: { info: OnChainTx; kind?: HackActivityType }) {
                 {props.kind === "ChannelOpen"
                     ? i18n.t("activity.transaction_details.channel_open")
                     : props.kind === "ChannelClose"
-                    ? i18n.t("activity.transaction_details.channel_close")
-                    : isSend()
-                    ? i18n.t("activity.transaction_details.onchain_send")
-                    : i18n.t("activity.transaction_details.onchain_receive")}
+                      ? i18n.t("activity.transaction_details.channel_close")
+                      : isSend()
+                        ? i18n.t("activity.transaction_details.onchain_send")
+                        : i18n.t(
+                              "activity.transaction_details.onchain_receive"
+                          )}
                 <Switch>
                     <Match
                         when={
@@ -130,10 +162,10 @@ function OnchainHeader(props: { info: OnChainTx; kind?: HackActivityType }) {
                             props.kind === "ChannelClose"
                         }
                     >
-                        <img src={shuffle} alt="swap" class="h-4 w-4" />
+                        <Shuffle class="h-4 w-4" />
                     </Match>
                     <Match when={true}>
-                        <img src={chain} alt="blockchain" class="h-4 w-4" />
+                        <Link class="h-4 w-4" />
                     </Match>
                 </Switch>
             </div>
@@ -161,18 +193,32 @@ function OnchainHeader(props: { info: OnChainTx; kind?: HackActivityType }) {
     );
 }
 
-export function MiniStringShower(props: { text: string }) {
+export function MiniStringShower(props: { text: string; hide?: boolean }) {
     const [copy, copied] = useCopy({ copiedTimeout: 1000 });
 
     return (
         <div class="grid w-full grid-cols-[minmax(0,_1fr)_auto] gap-1">
-            <TruncateMiddle text={props.text} />
+            <Switch>
+                <Match when={props.hide}>
+                    <input
+                        type="password"
+                        value={props.text}
+                        class="flex bg-transparent font-mono"
+                        readonly
+                        disabled
+                    />
+                </Match>
+                <Match when={true}>
+                    <TruncateMiddle text={props.text} />
+                </Match>
+            </Switch>
+
             <button
                 class="w-[1.5rem] p-1"
-                classList={{ "bg-m-green rounded": copied() }}
+                classList={{ "bg-m-red rounded": copied() }}
                 onClick={() => copy(props.text)}
             >
-                <img src={copyIcon} alt="copy" class="h-4 w-4" />
+                <Copy class="h-4 w-4" />
             </button>
         </div>
     );
@@ -215,11 +261,13 @@ function LightningDetails(props: { info: MutinyInvoice; tags?: TagItem }) {
                         </TinyButton>
                     </KeyValue>
                 </Show>
-                <KeyValue key={i18n.t("activity.transaction_details.status")}>
-                    {props.info.paid
-                        ? i18n.t("activity.transaction_details.paid")
-                        : i18n.t("activity.transaction_details.unpaid")}
-                </KeyValue>
+                <Show when={!props.info.paid}>
+                    <KeyValue
+                        key={i18n.t("activity.transaction_details.status")}
+                    >
+                        {i18n.t("activity.transaction_details.unpaid")}
+                    </KeyValue>
+                </Show>
                 <KeyValue key={i18n.t("activity.transaction_details.date")}>
                     <FormatPrettyPrint ts={Number(props.info.last_updated)} />
                 </KeyValue>
@@ -233,12 +281,7 @@ function LightningDetails(props: { info: MutinyInvoice; tags?: TagItem }) {
                 <KeyValue key={i18n.t("activity.transaction_details.invoice")}>
                     <MiniStringShower text={props.info.bolt11 ?? ""} />
                 </KeyValue>
-                <KeyValue
-                    key={i18n.t("activity.transaction_details.payment_hash")}
-                >
-                    <MiniStringShower text={props.info.payment_hash ?? ""} />
-                </KeyValue>
-                <Show when={props.info.paid}>
+                <Show when={props.info.paid && !props.info.inbound}>
                     <KeyValue
                         key={i18n.t(
                             "activity.transaction_details.payment_preimage"
@@ -275,8 +318,8 @@ function OnchainDetails(props: {
                     await (state.mutiny_wallet?.list_channels() as Promise<
                         MutinyChannel[]
                     >);
-                const channel = channels.find(
-                    (channel) => channel.outpoint?.startsWith(props.info.txid)
+                const channel = channels.find((channel) =>
+                    channel.outpoint?.startsWith(props.info.txid)
                 );
                 return channel;
             } catch (e) {
@@ -369,11 +412,6 @@ function OnchainDetails(props: {
                         "Pending"
                     )}
                 </KeyValue>
-                <Show when={props.kind === "ChannelOpen" && channelInfo()}>
-                    <KeyValue key={i18n.t("activity.transaction_details.peer")}>
-                        <MiniStringShower text={channelInfo()?.peer ?? ""} />
-                    </KeyValue>
-                </Show>
                 <KeyValue key={i18n.t("activity.transaction_details.txid")}>
                     <div class="flex gap-1">
                         {/* Have to do all these shenanigans because css / html is hard */}
@@ -412,7 +450,7 @@ function OnchainDetails(props: {
                             classList={{ "bg-m-green rounded": copied() }}
                             onClick={() => copy(props.info.txid)}
                         >
-                            <img src={copyIcon} alt="copy" class="h-4 w-4" />
+                            <Copy class="h-4 w-4" />
                         </button>
                     </div>
                 </KeyValue>
@@ -470,9 +508,8 @@ export function ActivityDetailsModal(props: {
         try {
             if (kind() === "Lightning") {
                 console.debug("reading invoice: ", id());
-                const invoice = await state.mutiny_wallet?.get_invoice_by_hash(
-                    id()
-                );
+                const invoice =
+                    await state.mutiny_wallet?.get_invoice_by_hash(id());
                 return invoice;
             } else if (kind() === "ChannelClose") {
                 console.debug("reading channel close: ", id());
@@ -571,8 +608,8 @@ export function ActivityDetailsModal(props: {
                                     </FancyCard>
                                 </Dialog.Title>
                                 <Hr />
-                                <Switch>
-                                    <Show when={data.latest}>
+                                <Show when={data.latest}>
+                                    <Switch>
                                         <Match when={kind() === "Lightning"}>
                                             <LightningDetails
                                                 info={data() as MutinyInvoice}
@@ -596,8 +633,8 @@ export function ActivityDetailsModal(props: {
                                                 info={data() as ChannelClosure}
                                             />
                                         </Match>
-                                    </Show>
-                                </Switch>
+                                    </Switch>
+                                </Show>
                             </div>
                         </Suspense>
                     </Dialog.Content>

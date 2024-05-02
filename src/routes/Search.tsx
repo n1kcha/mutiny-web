@@ -1,8 +1,16 @@
 import { Clipboard } from "@capacitor/clipboard";
 import { Capacitor } from "@capacitor/core";
 import { TagItem } from "@mutinywallet/mutiny-wasm";
-import { A, useNavigate } from "@solidjs/router";
 import {
+    A,
+    cache,
+    createAsync,
+    useNavigate,
+    useSearchParams
+} from "@solidjs/router";
+import { LucideClipboard, Scan, X } from "lucide-solid";
+import {
+    createEffect,
     createMemo,
     createResource,
     createSignal,
@@ -14,28 +22,26 @@ import {
     Switch
 } from "solid-js";
 
-import close from "~/assets/icons/close.svg";
-import paste from "~/assets/icons/paste.svg";
-import scan from "~/assets/icons/scan.svg";
 import {
+    ContactButton,
     ContactEditor,
     ContactFormValues,
-    LabelCircle,
     LoadingShimmer,
     NavBar,
-    showToast
+    showToast,
+    VStack
 } from "~/components";
 import {
     BackLink,
     Button,
     DefaultMain,
-    MutinyWalletGuard,
-    SafeArea
+    MutinyWalletGuard
 } from "~/components/layout";
 import { useI18n } from "~/i18n/context";
 import { useMegaStore } from "~/state/megaStore";
 import {
     actuallyFetchNostrProfile,
+    debounce,
     hexpubFromNpub,
     profileToPseudoContact,
     PseudoContact,
@@ -45,56 +51,64 @@ import {
 export function Search() {
     return (
         <MutinyWalletGuard>
-            <SafeArea>
-                <DefaultMain zeroBottomPadding={true}>
-                    <div class="flex items-center justify-between">
-                        <BackLink />
-                        <A
-                            class="rounded-lg p-2 hover:bg-white/5 active:bg-m-blue md:hidden"
-                            href="/scanner"
-                        >
-                            <img src={scan} alt="Scan" class="h-6 w-6" />
-                        </A>{" "}
-                    </div>
-                    {/* Need to put the search view in a supsense so it loads list on first nav */}
-                    <Suspense>
-                        <ActualSearch />
-                    </Suspense>
-                </DefaultMain>
-                <NavBar activeTab="send" />
-            </SafeArea>
+            <DefaultMain>
+                <div class="flex items-center justify-between">
+                    <BackLink />
+                    <A
+                        class="rounded-lg p-2 hover:bg-white/5 active:bg-m-blue md:hidden"
+                        href="/scanner"
+                    >
+                        <Scan class="h-6 w-6" />
+                    </A>{" "}
+                </div>
+                {/* Need to put the search view in a supsense so it loads list on first nav */}
+                <Suspense>
+                    <ActualSearch />
+                </Suspense>
+            </DefaultMain>
+            <NavBar activeTab="send" />
         </MutinyWalletGuard>
     );
 }
 
-function ActualSearch() {
+function ActualSearch(props: { initialValue?: string }) {
     const [searchValue, setSearchValue] = createSignal("");
+    const [debouncedSearchValue, setDebouncedSearchValue] = createSignal("");
     const [state, actions] = useMegaStore();
     const navigate = useNavigate();
     const i18n = useI18n();
 
-    async function contactsFetcher() {
+    const trigger = debounce((message: string) => {
+        setDebouncedSearchValue(message);
+    }, 250);
+
+    createEffect(() => {
+        trigger(searchValue());
+    });
+
+    const getContacts = cache(async () => {
         try {
-            const contacts: TagItem[] =
-                state.mutiny_wallet?.get_contacts_sorted();
-            return contacts || [];
+            const contacts = await state.mutiny_wallet?.get_contacts_sorted();
+            return contacts || ([] as TagItem[]);
         } catch (e) {
             console.error(e);
-            return [];
+            return [] as TagItem[];
         }
-    }
+    }, "contacts");
 
-    const [contacts] = createResource(contactsFetcher);
+    const contacts = createAsync<TagItem[]>(() => getContacts(), {
+        initialValue: []
+    });
 
     const filteredContacts = createMemo(() => {
-        const s = searchValue().toLowerCase();
+        const s = debouncedSearchValue().toLowerCase();
         return (
             contacts()?.filter((c) => {
                 return (
-                    c.ln_address &&
-                    (c.name.toLowerCase().includes(s) ||
-                        c.ln_address?.toLowerCase().includes(s) ||
-                        c.npub?.includes(s))
+                    c.name.toLowerCase().includes(s) ||
+                    c.ln_address?.toLowerCase().includes(s) ||
+                    c.lnurl?.toLowerCase().includes(s) ||
+                    c.npub?.includes(s)
                 );
             }) || []
         );
@@ -108,39 +122,58 @@ function ActualSearch() {
         );
     });
 
-    const showSendButton = createMemo(() => {
-        if (searchValue() === "") {
-            return false;
-        } else {
-            const text = searchValue().trim();
-            // Only want to check for something parseable if it's of reasonable length
-            if (text.length < 6) {
-                return false;
-            }
-            let success = false;
-            actions.handleIncomingString(
-                text,
-                (_error) => {
-                    // noop
-                },
-                (_result) => {
-                    success = true;
-                }
-            );
-            return success;
+    type SearchState = "notsendable" | "sendable" | "sendableWithContact";
+
+    const searchState = createMemo<SearchState>(() => {
+        if (debouncedSearchValue() === "") {
+            return "notsendable";
         }
+        const text = debouncedSearchValue().trim();
+        // Only want to check for something parseable if it's of reasonable length
+        if (text.length < 6) {
+            return "notsendable";
+        }
+        let state: SearchState = "notsendable";
+        actions.handleIncomingString(
+            text,
+            (_error) => {
+                // noop
+            },
+            (result) => {
+                if (result.lightning_address || result.lnurl) {
+                    state = "sendableWithContact";
+                } else {
+                    state = "sendable";
+                }
+            }
+        );
+        return state;
     });
+
+    function navWithSearchValue(to: string) {
+        navigate(to, {
+            state: {
+                previous: searchValue()
+                    ? `/search/?search=${searchValue().trim()}`
+                    : "/search"
+            }
+        });
+    }
 
     function handleContinue() {
         actions.handleIncomingString(
-            searchValue().trim(),
+            debouncedSearchValue().trim(),
             (error) => {
                 showToast(error);
             },
             (result) => {
                 if (result) {
                     actions.setScanResult(result);
-                    navigate("/send", { state: { previous: "/search" } });
+                    navigate("/send", {
+                        state: {
+                            previous: "/search"
+                        }
+                    });
                 } else {
                     showToast(new Error(i18n.t("send.error_address")));
                 }
@@ -148,7 +181,13 @@ function ActualSearch() {
         );
     }
 
-    function sendToContact(contact: TagItem) {
+    const profileDeleted = createMemo(
+        () => state.mutiny_wallet?.get_nostr_profile().deleted
+    );
+
+    // TODO this is mostly copy pasted from chat, could be a shared util maybe
+    function navToSend(contact?: TagItem) {
+        if (!contact) return;
         const address = contact.ln_address || contact.lnurl;
         if (address) {
             actions.handleIncomingString(
@@ -161,7 +200,7 @@ function ActualSearch() {
                         ...result,
                         contact_id: contact.id
                     });
-                    navigate("/send", { state: { previous: "/search" } });
+                    navigate("/send");
                 }
             );
         } else {
@@ -169,8 +208,26 @@ function ActualSearch() {
         }
     }
 
+    function sendToContact(contact: TagItem) {
+        if (profileDeleted()) {
+            navToSend(contact);
+        } else {
+            navWithSearchValue(`/chat/${contact.id}`);
+        }
+    }
+
     async function createContact(contact: ContactFormValues) {
         try {
+            // First check if the contact already exists
+            const existingContact = contacts()?.find(
+                (c) => c.npub === contact.npub?.trim().toLowerCase()
+            );
+
+            if (existingContact) {
+                sendToContact(existingContact);
+                return;
+            }
+
             const contactId = await state.mutiny_wallet?.create_new_contact(
                 contact.name,
                 contact.npub ? contact.npub.trim() : undefined,
@@ -189,7 +246,31 @@ function ActualSearch() {
                 throw new Error("no contact returned");
             }
 
-            sendToContact(tagItem);
+            // if the new contact has an npub, send to chat
+            // otherwise, send to send page
+            if (tagItem.npub) {
+                sendToContact(tagItem);
+            } else if (tagItem.ln_address) {
+                actions.handleIncomingString(
+                    tagItem.ln_address,
+                    () => {},
+                    () => {
+                        navigate("/send");
+                    }
+                );
+            } else if (tagItem.lnurl) {
+                actions.handleIncomingString(
+                    tagItem.lnurl,
+                    () => {},
+                    () => {
+                        navigate("/send");
+                    }
+                );
+            } else {
+                console.error(
+                    "No npub, ln_address, or lnurl found, this should never happen"
+                );
+            }
         } catch (e) {
             console.error(e);
         }
@@ -233,7 +314,11 @@ function ActualSearch() {
 
     let searchInputRef!: HTMLInputElement;
 
+    const [_params, setParams] = useSearchParams();
+
     onMount(() => {
+        setSearchValue(props.initialValue || "");
+        setParams({ search: "" });
         searchInputRef.focus();
     });
 
@@ -247,14 +332,16 @@ function ActualSearch() {
                     onInput={(e) => setSearchValue(e.currentTarget.value)}
                     placeholder="Name, address, invoice..."
                     autofocus
+                    autocomplete="off"
+                    autocorrect="off"
                     ref={(el) => (searchInputRef = el)}
                 />
                 <Show when={!searchValue()}>
                     <button
-                        class="bg-m-grey- absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-1 py-1 pr-4"
+                        class="absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-1 py-1 pr-4"
                         onClick={handlePaste}
                     >
-                        <img src={paste} alt="Paste" class="h-4 w-4" />
+                        <LucideClipboard class="h-4 w-4" />
                         Paste
                     </button>
                 </Show>
@@ -263,60 +350,49 @@ function ActualSearch() {
                         class="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-1 rounded-full bg-m-grey-800 px-1 py-1"
                         onClick={() => setSearchValue("")}
                     >
-                        <img src={close} alt="Clear" class="h-4 w-4" />
+                        <X class="h-4 w-4" />
                     </button>
                 </Show>
             </div>
-            <Show when={showSendButton()}>
-                <Button intent="green" onClick={handleContinue}>
-                    Continue
-                </Button>
-            </Show>
-            <div class="relative flex h-full max-h-[100svh] flex-col gap-3 overflow-y-scroll">
-                <div class="sticky top-0 z-50 bg-m-grey-900/90 py-2 backdrop-blur-sm">
-                    <h2 class="text-xl font-semibold">Contacts</h2>
-                </div>
-                <Show when={contacts.latest && contacts?.latest.length > 0}>
-                    <For each={filteredContacts()}>
-                        {(contact) => (
-                            <button
-                                onClick={() => sendToContact(contact)}
-                                class="flex items-center gap-2"
-                            >
-                                <LabelCircle
-                                    name={contact.name}
-                                    image_url={contact.image_url}
-                                    contact
-                                    label={false}
-                                    // Annoyingly the search input loses focus when the image load errors
-                                    onError={() => searchInputRef.focus()}
-                                />
-                                <div class="flex flex-col items-start">
-                                    <h2 class="overflow-hidden overflow-ellipsis text-base font-semibold">
-                                        {contact.name}
-                                    </h2>
-                                    <h3 class="overflow-hidden overflow-ellipsis text-sm font-normal text-neutral-500">
-                                        {contact.ln_address}
-                                    </h3>
-                                </div>
-                            </button>
-                        )}
-                    </For>
+            <div class="flex-0 flex w-full">
+                <Show when={searchState() !== "notsendable"}>
+                    <Button intent="green" onClick={handleContinue}>
+                        Continue
+                    </Button>
                 </Show>
-                <ContactEditor createContact={createContact} />
-
-                <Show when={!!searchValue()}>
-                    <h2 class="py-2 text-xl font-semibold">Global Search</h2>
-                    <Suspense fallback={<LoadingShimmer />}>
-                        <GlobalSearch
-                            searchValue={searchValue()}
-                            sendToContact={sendToContact}
-                            foundNpubs={foundNpubs()}
-                        />
-                    </Suspense>
-                </Show>
-                <div class="h-4" />
             </div>
+            <Show when={searchState() !== "sendable"}>
+                <VStack>
+                    <Suspense>
+                        <h2 class="text-xl font-semibold">Contacts</h2>
+                        <Show when={contacts() && contacts().length > 0}>
+                            <For each={filteredContacts()}>
+                                {(contact) => (
+                                    <ContactButton
+                                        contact={contact}
+                                        onClick={() => sendToContact(contact)}
+                                    />
+                                )}
+                            </For>
+                        </Show>
+                    </Suspense>
+                    <ContactEditor createContact={createContact} />
+
+                    <Suspense fallback={<LoadingShimmer />}>
+                        <Show when={!!debouncedSearchValue()}>
+                            <h2 class="py-2 text-xl font-semibold">
+                                Global Search
+                            </h2>
+                            <GlobalSearch
+                                searchValue={debouncedSearchValue()}
+                                sendToContact={sendToContact}
+                                foundNpubs={foundNpubs()}
+                            />
+                        </Show>
+                    </Suspense>
+                    <div class="h-4" />
+                </VStack>
+            </Show>
         </>
     );
 }
@@ -327,12 +403,12 @@ function GlobalSearch(props: {
     foundNpubs: (string | undefined)[];
 }) {
     const hexpubs = createMemo(() => {
-        const hexpubs: string[] = [];
+        const hexpubs: Set<string> = new Set();
         for (const npub of props.foundNpubs) {
             hexpubFromNpub(npub)
                 .then((h) => {
                     if (h) {
-                        hexpubs.push(h);
+                        hexpubs.add(h);
                     }
                 })
                 .catch((e) => {
@@ -342,10 +418,13 @@ function GlobalSearch(props: {
         return hexpubs;
     });
 
-    async function searchFetcher(args: { value?: string; hexpubs?: string[] }) {
+    async function searchFetcher(args: {
+        value?: string;
+        hexpubs?: Set<string>;
+    }) {
         try {
             // Handling case when value starts with "npub"
-            if (args.value?.startsWith("npub")) {
+            if (args.value?.toLowerCase().startsWith("npub")) {
                 const hexpub = await hexpubFromNpub(args.value);
                 if (!hexpub) return [];
 
@@ -353,14 +432,12 @@ function GlobalSearch(props: {
                 if (!profile) return [];
 
                 const contact = profileToPseudoContact(profile);
-                return contact.ln_address ? [contact] : [];
+                return [contact];
             }
 
             // Handling case for other values (name, nip-05, whatever else primal searches)
             const contacts = await searchProfiles(args.value!.toLowerCase());
-            return contacts.filter(
-                (c) => c.ln_address && !args.hexpubs?.includes(c.hexpub)
-            );
+            return contacts.filter((c) => !args.hexpubs?.has(c.hexpub));
         } catch (e) {
             console.error(e);
             return [];
@@ -415,6 +492,7 @@ function SingleContact(props: {
     sendToContact: (contact: TagItem) => void;
 }) {
     const [state, _actions] = useMegaStore();
+
     async function createContactFromSearchResult(contact: PseudoContact) {
         try {
             const contactId = await state.mutiny_wallet?.create_new_contact(
@@ -442,24 +520,9 @@ function SingleContact(props: {
     }
 
     return (
-        <button
+        <ContactButton
+            contact={props.contact}
             onClick={() => createContactFromSearchResult(props.contact)}
-            class="flex items-center gap-2"
-        >
-            <LabelCircle
-                name={props.contact.name}
-                image_url={props.contact.image_url}
-                contact
-                label={false}
-            />
-            <div class="flex flex-col items-start">
-                <h2 class="overflow-hidden overflow-ellipsis text-base font-semibold">
-                    {props.contact.name}
-                </h2>
-                <h3 class="overflow-hidden overflow-ellipsis text-sm font-normal text-neutral-500">
-                    {props.contact.ln_address}
-                </h3>
-            </div>
-        </button>
+        />
     );
 }

@@ -1,10 +1,9 @@
-/* @refresh reload */
-
 import {
     MutinyBip21RawMaterials,
     MutinyInvoice
 } from "@mutinywallet/mutiny-wasm";
 import { useNavigate } from "@solidjs/router";
+import { ArrowLeftRight, CircleHelp, Users } from "lucide-solid";
 import {
     createEffect,
     createMemo,
@@ -16,7 +15,6 @@ import {
     Switch
 } from "solid-js";
 
-import side2side from "~/assets/icons/side-to-side.svg";
 import {
     ActivityDetailsModal,
     AmountEditable,
@@ -104,6 +102,26 @@ function FeeWarning(props: { fee: bigint; flavor: ReceiveFlavor }) {
     );
 }
 
+function ReceiveMethodHelp() {
+    const i18n = useI18n();
+    const [open, setOpen] = createSignal(false);
+    return (
+        <>
+            <button class="flex gap-2 self-end" onClick={() => setOpen(true)}>
+                <Users class="w-[18px]" />
+                <CircleHelp class="w-[18px] text-m-grey-350" />
+            </button>
+            <SimpleDialog
+                open={open()}
+                setOpen={setOpen}
+                title={i18n.t("receive.method_help.title")}
+            >
+                <p>{i18n.t("receive.method_help.body")}</p>
+            </SimpleDialog>
+        </>
+    );
+}
+
 export function Receive() {
     const [state, actions] = useMegaStore();
     const navigate = useNavigate();
@@ -175,6 +193,8 @@ export function Receive() {
         setUnified("");
         setPaymentTx(undefined);
         setPaymentInvoice(undefined);
+        setError("");
+        setFlavor(state.preferredInvoiceType);
     }
 
     function openDetailsModal() {
@@ -184,8 +204,8 @@ export function Receive() {
                     ? paymentTx()?.txid
                     : undefined
                 : paymentInvoice()
-                ? paymentInvoice()?.payment_hash
-                : undefined;
+                  ? paymentInvoice()?.payment_hash
+                  : undefined;
         const kind = paidState() === "onchain_paid" ? "OnChain" : "Lightning";
 
         console.log("Opening details modal: ", paymentTxId, kind);
@@ -352,7 +372,7 @@ export function Receive() {
             <DefaultMain>
                 <Show when={receiveState() === "show"} fallback={<BackLink />}>
                     <BackButton
-                        onClick={() => setReceiveState("edit")}
+                        onClick={() => clearAll()}
                         title={i18n.t("receive.edit")}
                         showOnDesktop
                     />
@@ -375,10 +395,21 @@ export function Receive() {
                                 setAmountSats={setAmount}
                                 onSubmit={getQr}
                             />
-                            <ReceiveWarnings amountSats={amount() || "0"} />
+                            <ReceiveWarnings
+                                amountSats={amount() || "0"}
+                                from_fedi_to_ln={false}
+                            />
                         </VStack>
                         <div class="flex-1" />
                         <VStack>
+                            <Show
+                                when={
+                                    state.federations &&
+                                    state.federations.length
+                                }
+                            >
+                                <ReceiveMethodHelp />
+                            </Show>
                             <form onSubmit={onSubmit}>
                                 <SimpleInput
                                     type="text"
@@ -411,7 +442,7 @@ export function Receive() {
                             amountSats={amount() ? amount().toString() : "0"}
                             kind={flavor()}
                         />
-                        <p class="text-center text-neutral-400">
+                        <p class="text-center text-m-grey-350">
                             {i18n.t("receive.keep_mutiny_open")}
                         </p>
                         {/* Only show method chooser when we have an invoice */}
@@ -421,7 +452,7 @@ export function Receive() {
                                 onClick={() => setMethodChooserOpen(true)}
                             >
                                 <span>{i18n.t("receive.choose_format")}</span>
-                                <img class="h-4 w-4" src={side2side} />
+                                <ArrowLeftRight class="h-4 w-4" />
                             </button>
                             <SimpleDialog
                                 title={i18n.t("receive.choose_payment_format")}
